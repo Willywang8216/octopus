@@ -147,7 +147,11 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 
 	// 所有通道都失败
 	metrics.Save(c.Request.Context(), false, lastErr)
-	resp.Error(c, http.StatusBadGateway, "all channels failed")
+	msg := "all channels failed"
+	if lastErr != nil {
+		msg = fmt.Sprintf("all channels failed: %v", lastErr)
+	}
+	resp.Error(c, http.StatusBadGateway, msg)
 }
 
 // parseRequest 解析并验证入站请求

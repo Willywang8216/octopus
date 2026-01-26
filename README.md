@@ -305,51 +305,112 @@ Since the program handles numerous statistics, writing to the database on every 
 
 ## 🔌 Client Integration
 
-### OpenAI SDK
+Octopus exposes your **groups as model IDs**.  
+Any group you create (for example:
+
+- `Omni-Intelligence`
+- `Flash-Efficiency`
+- `Deep Reasoning`
+- `Agentic Coder`
+- `Multimodal Generation Groups`
+- `Audio/Speech Group`
+- `The MoE Safety Net`
+- `Embeddings-Universal` (recommended for embeddings, see below)
+
+can be used directly as the `model` when calling the API.
+
+### OpenAI SDK (Python)
 
 ```python
 from openai import OpenAI
-import os
 
-client = OpenAI(   
-    base_url="http://127.0.0.1:8080/v1",   
-    api_key="sk-octopus-P48ROljwJmWBYVARjwQM8Nkiezlg7WOrXXOWDYY8TI5p9Mzg", 
+client = OpenAI(
+    base_url="http://127.0.0.1:8080/v1",
+    api_key="sk-octopus-xxxxxxxx",  # Your Octopus API key
 )
-completion = client.chat.completions.create(
-    model="octopus-openai",  # Use the correct group name
-    messages = [
-        {"role": "user", "content": "Hello"},
+
+# High‑quality general assistant
+omni = client.chat.completions.create(
+    model="Omni-Intelligence",
+    messages=[
+        {"role": "user", "content": "Explain what Octopus does in one paragraph."},
     ],
 )
-print(completion.choices[0].message.content)
+print(omni.choices[0].message.content)
+
+# Fast and cheap assistant
+flash = client.chat.completions.create(
+    model="Flash-Efficiency",
+    messages=[
+        {"role": "user", "content": "Summarize this text quickly."},
+    ],
+)
+
+# Deep reasoning assistant
+reasoning = client.chat.completions.create(
+    model="Deep Reasoning",
+    messages=[
+        {"role": "user", "content": "Solve a tricky reasoning puzzle step by step."},
+    ],
+)
+
+# Coding assistant
+coder = client.chat.completions.create(
+    model="Agentic Coder",
+    messages=[
+        {"role": "user", "content": "Write a Python function to compute Fibonacci numbers."},
+    ],
+)
 ```
 
-### Claude Code
+#### Embeddings with a dedicated group
 
-Edit `~/.claude/settings.json`
+Create an embedding‑only group (for example `Embeddings-Universal`) and use it with the OpenAI embeddings API:
+
+```bash
+curl -sS "http://127.0.0.1:8080/v1/embeddings" \
+  -H "Authorization: Bearer sk-octopus-xxxxxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "Embeddings-Universal",
+    "input": "test embedding ping"
+  }'
+```
+
+### Claude Code / Claude Desktop
+
+Claude tools expect an Anthropic‑style API.  
+Point them to Octopus and use group names as models.
+
+Edit `~/.claude/settings.json`:
 
 ```json
 {
   "env": {
     "ANTHROPIC_BASE_URL": "http://127.0.0.1:8080",
-    "ANTHROPIC_AUTH_TOKEN": "sk-octopus-P48ROljwJmWBYVARjwQM8Nkiezlg7WOrXXOWDYY8TI5p9Mzg",
+    "ANTHROPIC_AUTH_TOKEN": "sk-octopus-xxxxxxxx",
     "API_TIMEOUT_MS": "3000000",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-    "ANTHROPIC_MODEL": "octopus-sonnet-4-5",
-    "ANTHROPIC_SMALL_FAST_MODEL": "octopus-haiku-4-5",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "octopus-sonnet-4-5",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "octopus-sonnet-4-5",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "octopus-haiku-4-5"
+
+    // Map Claude roles onto your Octopus groups
+    "ANTHROPIC_MODEL": "Omni-Intelligence",
+    "ANTHROPIC_SMALL_FAST_MODEL": "Flash-Efficiency",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "Omni-Intelligence",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "Omni-Intelligence",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "Flash-Efficiency"
   }
 }
 ```
 
+Now Claude Code will send requests to Octopus, which will route them through your groups.
+
 ### Codex
 
-Edit `~/.codex/config.toml`
+Edit `~/.codex/config.toml`:
 
 ```toml
-model = "octopus-codex" # Use the correct group name
+# Use your coding group as the model
+model = "Agentic Coder"
 
 model_provider = "octopus"
 
@@ -358,13 +419,256 @@ name = "octopus"
 base_url = "http://127.0.0.1:8080/v1"
 ```
 
-Edit `~/.codex/auth.json`
+Edit `~/.codex/auth.json`:
 
 ```json
 {
-  "OPENAI_API_KEY": "sk-octopus-P48ROljwJmWBYVARjwQM8Nkiezlg7WOrXXOWDYY8TI5p9Mzg"
+  "OPENAI_API_KEY": "sk-octopus-xxxxxxxx"
 }
 ```
+
+### Other OpenAI‑compatible clients (Cursor, VS Code, JetBrains, etc.)
+
+For any client that speaks the OpenAI API (Cursor, many VS Code / JetBrains extensions, etc.):
+
+- Set **Base URL** to `http://127.0.0.1:8080/v1` (or your Octopus URL).
+- Set **API Key** to your Octopus API key (`sk-octopus-...`).
+- Set **Model** to one of your groups depending on the use‑case:
+  - `Omni-Intelligence` – high‑quality general assistant
+  - `Flash-Efficiency` – fast & cheap assistant
+  - `Deep Reasoning` – long, chain‑of‑thought style tasks
+  - `Agentic Coder` – coding work
+  - `Multimodal Generation Groups` – image / video capable models
+  - `Audio/Speech Group` – TTS / ASR / speech models
+  - `Embeddings-Universal` – embeddings (only for `/v1/embeddings`)
+
+---
+
+## 🧩 Recommended Group Presets & Regex
+
+Octopus groups are defined by a **group name** and an optional **regex** used by `ChannelAutoGroup` to attach channel models automatically.
+
+Below are recommended presets based on the models included in `internal/price/presets.go` (sourced from `models.dev`).  
+The regexes assume your upstream model IDs follow the same naming (optionally prefixed with a provider like `openai/`, `anthropic/`, `google/`, etc.).
+
+> These are starting points. You can adjust them in the Web UI under **Group Management**.
+
+### 1. Omni‑Intelligence (frontier generalists)
+
+**Use‑case:** highest‑quality general assistant across providers.
+
+**Group name:** `Omni-Intelligence`
+
+**Recommended regex:**
+
+```text
+(?i)^((openai\/)?(gpt-5(\.1)?|gpt-4o(-2024-[0-9\-]+)?|gpt-4\.1|gpt-4-turbo|o1(-pro)?|o3(-pro)?)
+|(anthropic\/)?(claude-4\.5-(opus|sonnet)|claude-4\.0-opus)
+|(google\/)?(gemini-2\.5-pro(-preview.*)?|gemini-3-pro-preview)
+|(xai\/)?grok-4
+|(alibaba\/)?qwen3-max
+|(zhipuai\/)?glm-4\.6)$
+```
+
+### 2. Flash‑Efficiency (fast & cheap)
+
+**Use‑case:** low‑latency, low‑cost responses.
+
+**Group name:** `Flash-Efficiency`
+
+**Recommended regex:**
+
+```text
+(?i)^(
+  (openai\/)?(gpt-5-(nano|mini)|gpt-4\.1-nano|gpt-4o-mini|gpt-3\.5-turbo)
+  |(google\/)?gemini-(1\.5-flash(-8b)?|2\.0-flash(-lite)?|2\.5-flash(-lite)?(-preview.*)?|flash-latest|flash-lite-latest)
+  |(xai\/)?(grok-3-mini(-fast)?|grok-3-fast(-latest)?|grok-4-fast(-non-reasoning)?)
+  |(alibaba\/)?(qwen-flash|qwen-omni-turbo(-realtime)?|qwen3-omni-flash)
+)$
+```
+
+### 3. Deep Reasoning
+
+**Use‑case:** tasks where you want explicit, heavier reasoning.
+
+**Group name:** `Deep Reasoning`
+
+**Recommended regex:**
+
+```text
+(?i)^(
+  (openai\/)?(o1(-mini|-preview|-pro)?|o3(-mini|-pro)?|o3-deep-research|o4-mini-deep-research)
+  |(deepseek\/)?deepseek-reasoner
+  |(moonshotai\/)?kimi-k2-thinking(-turbo)?
+  |(alibaba\/)?qwen3-next-80b-a3b-thinking
+)$
+```
+
+### 4. Agentic Coder
+
+**Use‑case:** coding, refactors, code review, tool‑heavy agents.
+
+**Group name:** `Agentic Coder`
+
+**Recommended regex:**
+
+```text
+(?i)^(
+  (openai\/)?(gpt-5(\.1)?-codex(-mini)?|codex-mini-latest)
+  |(xai\/)?grok-code-fast-1
+  |(alibaba\/)?qwen3-coder.*
+)$
+```
+
+### 5. Multimodal Generation Groups (vision / image / video)
+
+**Use‑case:** models with strong vision or image generation.
+
+**Group name:** `Multimodal Generation Groups`
+
+**Recommended regex:**
+
+```text
+(?i)^(
+  (google\/)?(gemini-2\.5-flash-image(-preview)?|gemini-.*-vision.*)
+  |(xai\/)?grok-(vision-beta|2-vision(-latest|-1212)?)
+  |(alibaba\/)?(qwen-vl-.*|qwen2-5-vl-.*|qwen3-vl-.*)
+  |wan2\.2(-i2v|-t2v)?
+  |sora
+  |kling
+  |runway
+)$
+```
+
+### 6. Audio/Speech Group (ASR, TTS, live)
+
+**Use‑case:** speech‑to‑text, text‑to‑speech, live translation.
+
+**Group name:** `Audio/Speech Group`
+
+**Recommended regex:**
+
+```text
+(?i)^(
+  (google\/)?(gemini-.*-tts|gemini-live-.*)
+  |(alibaba\/)?(qwen3-asr-flash|qwen3-livetranslate-flash-realtime)
+  |cosyvoice
+  |fish-speech
+  |telespeech
+  |sensevoice
+)$
+```
+
+### 7. The MoE Safety Net (fallback pool)
+
+**Use‑case:** diverse backup pool when primary groups fail.
+
+**Group name:** `The MoE Safety Net`
+
+**Recommended regex:**
+
+```text
+(?i)^(
+  (alibaba\/)?(qwen2-5-.*|qwen3-(?!coder).*)
+  |(zhipuai\/)?glm-4(\.5|\.6).*
+  |mixtral
+  |(minimax\/)?minimax-m2
+  |(moonshotai\/)?kimi-k2-.*
+)$
+```
+
+### 8. Embeddings‑Universal (for `/v1/embeddings`)
+
+**Use‑case:** text embeddings for RAG, search, clustering.
+
+**Group name:** `Embeddings-Universal`
+
+**Actual embedding models present in this repo (from `presets.go`):**
+
+- `text-embedding-3-small` (OpenAI)
+- `text-embedding-3-large` (OpenAI)
+- `text-embedding-ada-002` (OpenAI)
+- `gemini-embedding-001` (Google)
+
+**Recommended regex:**
+
+```text
+(?i)^(
+  (openai\/)?text-embedding-(3-(small|large)|ada-002)
+  |(google\/)?gemini-embedding-001
+)$
+```
+
+Use this group as the `model` when calling `/v1/embeddings`.  
+Make sure at least one **channel** in this group is configured with an **OpenAI Embeddings‑compatible endpoint** (channel type `OpenAIEmbedding` in the code).
+
+---
+
+## 🐛 Debugging `/v1/embeddings` Failures
+
+The embedding path is handled by:
+
+- Inbound: `InboundTypeOpenAIEmbedding` → `EmbeddingInbound`
+- Outbound: only channels whose `Type` is `OutboundTypeOpenAIEmbedding`
+
+A typical failure flow:
+
+1. `model` (group name) is found.
+2. Group items reference channels that are **chat‑only**, not embedding‑capable.
+3. In `internal/relay/relay.go` the request is rejected for each channel:
+
+   ```go
+   if internalRequest.IsEmbeddingRequest() && !outbound.IsEmbeddingChannelType(channel.Type) {
+       log.Warnf("channel type %d is not compatible with embedding request for channel: %s", channel.Type, channel.Name)
+       // ...
+   }
+   ```
+
+4. After all channels fail, Octopus returns `502 Bad Gateway`.
+
+We improved the final error message to include the last error:
+
+```go
+// 所有通道都失败
+metrics.Save(c.Request.Context(), false, lastErr)
+msg := "all channels failed"
+if lastErr != nil {
+    msg = fmt.Sprintf("all channels failed: %v", lastErr)
+}
+resp.Error(c, http.StatusBadGateway, msg)
+```
+
+So now the JSON error body will help you distinguish:
+
+- `no available channel` – group exists but has no enabled items.
+- `model not supported` – API key restrictions or unsupported model name.
+- `channel type X not compatible with embedding request` – group points only to chat channels.
+- `upstream error: 4xx/5xx: ...` – provider‑side failure (bad key, quota exceeded, etc.).
+
+To debug:
+
+1. **Check logs** around the time of the request:
+   - Look for `request model ... forwarding to channel ...` lines.
+   - Look for `channel type X is not compatible with embedding request` or `upstream error: ...`.
+
+2. **Confirm group wiring** in the Web UI:
+   - Ensure `Embeddings-Universal` exists.
+   - Ensure it has at least one **channel item** pointing at a real embedding model (`text-embedding-3-small`, etc.).
+   - Ensure that channel’s **Type** is set to an embedding‑compatible type (OpenAI embeddings).
+
+3. **Re‑test**:
+
+   ```bash
+   curl -sS "http://127.0.0.1:8080/v1/embeddings" \
+     -H "Authorization: Bearer sk-octopus-xxxxxxxx" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "model": "Embeddings-Universal",
+       "input": "diagnostic ping"
+     }'
+   ```
+
+If it still fails, the log lines plus the enriched `all channels failed: ...` message will tell you exactly whether it's a routing issue (no embedding channel), configuration issue (wrong model name / group), or upstream HTTP error.
 
 ---
 
