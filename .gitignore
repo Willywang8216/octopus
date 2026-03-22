@@ -1,5 +1,35 @@
-data
-build
+# Runtime data (SQLite, config, uploads, etc.)
+# The upstream project uses ./data for local state; never commit it.
+data/
+
+# Local exports / snapshots (often contain API keys, prompts, responses)
+octopus-export-*.json
+channels.json
+groups.json
+urls.txt
+
+octllmenv
+.env*
+
+# SQLite / embedded DB artifacts (in case a DB is created elsewhere)
+*.db
+*.sqlite
+*.sqlite3
+*.db-*
+*.sqlite-*
+*.wal
+*.shm
+
+# Logs / temp
+*.log
+logs/
+tmp/
+
+# Build outputs
+build/
 static/out/*
 !static/out/README.md
-.vscode
+
+# IDE / OS
+.vscode/
+.DS_Store
