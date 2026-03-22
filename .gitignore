@@ -1,0 +1,34 @@
+# ----------------------------------------------------------------------
+# octllm / octopus local repo .gitignore
+# ----------------------------------------------------------------------
+
+# Local runtime state
+data/
+
+# Local exports/snapshots
+octopus-export-*.json
+
+# Local config/material in the repo root
+channels.json
+groups.json
+urls.txt
+octllmenv
+
+# Common secret/env files
+.env*
+
+# Generic SQLite artifacts
+*.db
+*.sqlite*
+*.wal
+*.shm
+
+# Logs/temp
+*.log
+logs/
+tmp/
+
+# IDE/OS noise
+.vscode/
+.DS_Store
+

@@ -1,0 +1,17 @@
+services:
+  octopus:
+    image: bestrui/octopus
+    ports:
+       - '8980:8080'
+    volumes:      
+       - './data:/app/data'
+    container_name: octopus
+    restart: unless-stopped
+    networks:
+      1panel-network:
+        ipv4_address: 172.18.0.39
+
+
+networks:
+  1panel-network:
+    external: true
