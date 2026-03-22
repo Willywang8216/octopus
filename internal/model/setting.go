@@ -15,6 +15,9 @@ const (
 	SettingKeySyncLLMInterval         SettingKey = "sync_llm_interval"          // LLM 同步间隔(小时)
 	SettingKeyRelayLogKeepPeriod      SettingKey = "relay_log_keep_period"      // 日志保存时间范围(天)
 	SettingKeyRelayLogKeepEnabled     SettingKey = "relay_log_keep_enabled"     // 是否保留历史日志
+	SettingKeyRelayLogMaxRows         SettingKey = "relay_log_max_rows"         // 最多保留多少条 relay logs（0=不限制）
+	SettingKeyRelayLogMaxContentBytes SettingKey = "relay_log_max_content_bytes" // 单条日志 request/response 最多保存多少字节（0=不限制）
+	SettingKeyRelayLogVacuumInterval  SettingKey = "relay_log_vacuum_interval"  // SQLite 进行 checkpoint/vacuum 的周期(小时, 0=关闭)
 	SettingKeyCORSAllowOrigins        SettingKey = "cors_allow_origins"         // 跨域白名单(逗号分隔, 如 "example.com,example2.com"). 为空不允许跨域, "*"允许所有
 
 	// Channel key maintenance.
@@ -89,6 +92,9 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeySyncLLMInterval, Value: "24"},         // 默认24小时同步一次LLM
 		{Key: SettingKeyRelayLogKeepPeriod, Value: "7"},       // 默认日志保存7天
 		{Key: SettingKeyRelayLogKeepEnabled, Value: SettingValueTrue},
+		{Key: SettingKeyRelayLogMaxRows, Value: "50000"},
+		{Key: SettingKeyRelayLogMaxContentBytes, Value: "32768"},
+		{Key: SettingKeyRelayLogVacuumInterval, Value: "24"},
 
 		{Key: SettingKeyChannelKeyAutoDisableEnabled, Value: SettingValueTrue},
 		{Key: SettingKeyChannelKeyRecheckInterval, Value: "60"},
@@ -106,6 +112,11 @@ func (s *Setting) Validate() error {
 	case SettingKeyStatsSaveInterval, SettingKeyChannelKeyRecheckInterval, SettingKeyChannelKeySaveInterval:
 		if !isPositiveIntSettingValue(s.Value) {
 			return fmt.Errorf("%s must be a positive integer", s.Key)
+		}
+		return nil
+	case SettingKeyRelayLogMaxRows, SettingKeyRelayLogMaxContentBytes, SettingKeyRelayLogVacuumInterval:
+		if !isNonNegativeIntSettingValue(s.Value) {
+			return fmt.Errorf("%s must be a non-negative integer", s.Key)
 		}
 		return nil
 	case SettingKeyRelayLogKeepEnabled, SettingKeyChannelKeyAutoDisableEnabled:

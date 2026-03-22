@@ -14,6 +14,17 @@ import (
 	"github.com/bestruirui/octopus/internal/utils/log"
 )
 
+func truncateForLog(s string, maxBytes int) string {
+	if maxBytes <= 0 {
+		return s
+	}
+	if len(s) <= maxBytes {
+		return s
+	}
+	// Keep it simple: byte-based truncation. These payloads are JSON/ASCII in practice.
+	return s[:maxBytes] + "...[truncated]"
+}
+
 // RelayMetrics 统一管理请求的日志记录和统计信息
 type RelayMetrics struct {
 	// 基础信息
@@ -152,10 +163,15 @@ func (m *RelayMetrics) saveLog(ctx context.Context, err error, duration time.Dur
 		relayLog.Cost = m.Stats.InputCost + m.Stats.OutputCost
 	}
 
+	maxBytes := 0
+	if n, err := op.SettingGetInt(model.SettingKeyRelayLogMaxContentBytes); err == nil {
+		maxBytes = n
+	}
+
 	// 设置请求内容
 	if m.InternalRequest != nil {
 		if reqJSON, jsonErr := json.Marshal(m.InternalRequest); jsonErr == nil {
-			relayLog.RequestContent = string(reqJSON)
+			relayLog.RequestContent = truncateForLog(string(reqJSON), maxBytes)
 		}
 	}
 
@@ -171,13 +187,13 @@ func (m *RelayMetrics) saveLog(ctx context.Context, err error, duration time.Dur
 				insert := fmt.Sprintf(`"usage":{"cache_creation_input_tokens":%d,`, m.InternalResponse.Usage.CacheCreationInputTokens)
 				respJSON = []byte(strings.Replace(respStr, old, insert, 1))
 			}
-			relayLog.ResponseContent = string(respJSON)
+			relayLog.ResponseContent = truncateForLog(string(respJSON), maxBytes)
 		}
 	}
 
 	// 设置错误信息
 	if err != nil {
-		relayLog.Error = err.Error()
+		relayLog.Error = truncateForLog(err.Error(), maxBytes)
 	}
 
 	if logErr := op.RelayLogAdd(ctx, relayLog); logErr != nil {
@@ -185,7 +201,7 @@ func (m *RelayMetrics) saveLog(ctx context.Context, err error, duration time.Dur
 	}
 }
 
-// filterResponseForLog 创建响应的浅拷贝，过滤掉 images 和 MultipleContent 中的图片数据以减少存储压力
+// filterResponseForLog 创建响应的浅拷贝，过滤掉 images / embedding 向量等大字段以减少存储压力
 func (m *RelayMetrics) filterResponseForLog(resp *transformerModel.InternalLLMResponse) *transformerModel.InternalLLMResponse {
 	if resp == nil {
 		return nil
@@ -193,8 +209,9 @@ func (m *RelayMetrics) filterResponseForLog(resp *transformerModel.InternalLLMRe
 
 	// 创建浅拷贝
 	filtered := *resp
-	filtered.Choices = make([]transformerModel.Choice, len(resp.Choices))
 
+	// Chat response: filter images
+	filtered.Choices = make([]transformerModel.Choice, len(resp.Choices))
 	for i, choice := range resp.Choices {
 		filtered.Choices[i] = choice
 
@@ -227,8 +244,24 @@ func (m *RelayMetrics) filterResponseForLog(resp *transformerModel.InternalLLMRe
 		}
 	}
 
+	// Embedding response: vectors are huge; omit them but keep indices.
+	if len(resp.EmbeddingData) > 0 {
+		filtered.EmbeddingData = make([]transformerModel.EmbeddingObject, len(resp.EmbeddingData))
+		for i, obj := range resp.EmbeddingData {
+			filtered.EmbeddingData[i] = transformerModel.EmbeddingObject{
+				Object: obj.Object,
+				Index:  obj.Index,
+				Embedding: transformerModel.Embedding{
+					Base64String: ptr("[embedding omitted for storage]"),
+				},
+			}
+		}
+	}
+
 	return &filtered
 }
+
+func ptr[T any](v T) *T { return &v }
 
 // filterMessageContent 过滤 MessageContent 中的图片数据
 func (m *RelayMetrics) filterMessageContent(content transformerModel.MessageContent) transformerModel.MessageContent {
