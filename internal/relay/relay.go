@@ -131,43 +131,51 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 				continue
 			}
 
-			rc := &relayContext{
-				c:                    c,
-				inAdapter:            inAdapter,
-				outAdapter:           outAdapter,
-				internalRequest:      &attemptRequest,
-				channel:              channel,
-				metrics:              metrics,
-				usedKey:              channel.GetChannelKey(),
-				firstTokenTimeOutSec: group.FirstTokenTimeOut,
-			}
-			if rc.usedKey.ID == 0 || strings.TrimSpace(rc.usedKey.ChannelKey) == "" {
+			keys := channel.GetAvailableKeys()
+			if len(keys) == 0 {
 				log.Warnf("no available key for channel %s", channel.Name)
 				lastErr = fmt.Errorf("no available key for channel %s", channel.Name)
 				item = b.Next(group.Items, item)
 				continue
 			}
 
-			if statusCode, err := rc.forward(); err == nil {
-				rc.collectResponse()
-				rc.usedKey.StatusCode = statusCode
-				rc.usedKey.LastUseTimeStamp = time.Now().Unix()
-				rc.usedKey.TotalCost += metrics.Stats.InputCost + metrics.Stats.OutputCost
-				op.ChannelKeyUpdate(rc.usedKey)
-				metrics.Save(c.Request.Context(), true, nil)
-				return
-			} else {
-				rc.usedKey.StatusCode = statusCode
-				rc.usedKey.LastUseTimeStamp = time.Now().Unix()
-				op.ChannelKeyUpdate(rc.usedKey)
-				if c.Writer.Written() {
-					// Streaming responses may have already started; retrying would corrupt the client stream.
-					rc.collectResponse()
-					metrics.Save(c.Request.Context(), false, err)
-					return
+			var channelKeyErr error
+			for keyIndex := range keys {
+				rc := &relayContext{
+					c:                    c,
+					inAdapter:            inAdapter,
+					outAdapter:           outAdapter,
+					internalRequest:      &attemptRequest,
+					channel:              channel,
+					metrics:              metrics,
+					usedKey:              keys[keyIndex],
+					firstTokenTimeOutSec: group.FirstTokenTimeOut,
 				}
-				lastErr = fmt.Errorf("channel %s failed: %v", channel.Name, err)
+
+				if statusCode, err := rc.forward(); err == nil {
+					rc.collectResponse()
+					rc.usedKey.StatusCode = statusCode
+					rc.usedKey.LastUseTimeStamp = time.Now().Unix()
+					rc.usedKey.TotalCost += metrics.Stats.InputCost + metrics.Stats.OutputCost
+					op.ChannelKeyUpdate(rc.usedKey)
+					metrics.Save(c.Request.Context(), true, nil)
+					return
+				} else {
+					rc.usedKey.StatusCode = statusCode
+					rc.usedKey.LastUseTimeStamp = time.Now().Unix()
+					op.ChannelKeyUpdate(rc.usedKey)
+					if c.Writer.Written() {
+						// Streaming responses may have already started; retrying would corrupt the client stream.
+						rc.collectResponse()
+						metrics.Save(c.Request.Context(), false, err)
+						return
+					}
+					channelKeyErr = err
+					continue
+				}
 			}
+
+			lastErr = fmt.Errorf("channel %s all keys failed: %v", channel.Name, channelKeyErr)
 			item = b.Next(group.Items, item)
 		}
 	}

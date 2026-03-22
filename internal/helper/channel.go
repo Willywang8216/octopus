@@ -9,6 +9,7 @@ import (
 	"github.com/bestruirui/octopus/internal/client"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
+	"github.com/bestruirui/octopus/internal/transformer/outbound"
 	"github.com/bestruirui/octopus/internal/utils/log"
 	"github.com/bestruirui/octopus/internal/utils/xstrings"
 	"github.com/dlclark/regexp2"
@@ -53,6 +54,18 @@ func ChannelBaseUrlDelayUpdate(channel *model.Channel, ctx context.Context) {
 	}
 }
 
+func groupLooksLikeEmbeddingGroup(group model.Group) bool {
+	name := strings.ToLower(strings.TrimSpace(group.Name))
+	if strings.Contains(name, "embed") {
+		return true
+	}
+	re := strings.ToLower(strings.TrimSpace(group.MatchRegex))
+	if strings.Contains(re, "embed") {
+		return true
+	}
+	return false
+}
+
 func ChannelAutoGroup(channel *model.Channel, ctx context.Context) {
 	if channel == nil {
 		return
@@ -71,7 +84,14 @@ func ChannelAutoGroup(channel *model.Channel, ctx context.Context) {
 		return
 	}
 
+	isEmbeddingChannel := outbound.IsEmbeddingChannelType(channel.Type)
+
 	for _, group := range groups {
+		// Avoid creating obviously-unroutable items (e.g. embedding groups pointing to chat channels).
+		if groupLooksLikeEmbeddingGroup(group) && !isEmbeddingChannel {
+			continue
+		}
+
 		matchedModelNames := make([]string, 0, len(channelModelNames))
 
 		switch channel.AutoGroup {
