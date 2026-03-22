@@ -32,3 +32,7 @@ tmp/
 .vscode/
 .DS_Store
 
+build
+static/out/*
+!static/out/README.md
+.vscode
