@@ -27,7 +27,7 @@ SET_DB_EMBEDDING_GROUP_FAILOVER="${SET_DB_EMBEDDING_GROUP_FAILOVER:-1}"
 
 # If enabled, apply a conservative embedding MatchRegex to groups with name containing "embed".
 APPLY_EMBEDDING_REGEX="${APPLY_EMBEDDING_REGEX:-0}"
-EMBEDDING_MATCH_REGEX_DEFAULT="${EMBEDDING_MATCH_REGEX_DEFAULT:-(?i)^(text-embedding-.*|.*embedding.*|(?:baai/)?bge-.*|netease-youdao/bce-embedding-base_v1|(?:qwen/)?qwen3-embedding-.*)$}"
+EMBEDDING_MATCH_REGEX_DEFAULT="${EMBEDDING_MATCH_REGEX_DEFAULT:-(?i)^(text-embedding-.*|.*embedding.*|.*embed.*|(?:baai/)?bge-.*|netease-youdao/bce-embedding-base_v1|(?:qwen/)?qwen3-embedding-.*)$}"
 
 # If enabled, delete groups whose name matches PRUNE_GROUP_NAME_REGEX (bash regex).
 # Common usage:
@@ -62,12 +62,19 @@ is_embedding_model() {
   local m="$1"
   m="${m,,}"
 
+  # explicitly exclude rerankers
+  [[ "$m" == *rerank* ]] && return 1
+
   [[ "$m" == text-embedding-* ]] && return 0
   [[ "$m" == *embedding* ]] && return 0
+
+  # Many providers use "embed" (not "embedding") in model names.
+  # Examples: nvidia/nv-embed-v1, snowflake/arctic-embed-l, *-embed-v2
+  [[ "$m" == *embed* ]] && return 0
+
   [[ "$m" == bge-* ]] && return 0
   [[ "$m" == *"/bge-"* ]] && return 0
-  [[ "$m" == *"qwen"* && "$m" == *"embedding"* ]] && return 0
-  [[ "$m" == *"e5"* && "$m" == *"embed"* ]] && return 0
+
   return 1
 }
 
