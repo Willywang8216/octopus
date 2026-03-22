@@ -1,6 +1,7 @@
 package model
 
 import (
+	"slices"
 	"time"
 
 	"github.com/bestruirui/octopus/internal/transformer/outbound"
@@ -121,17 +122,14 @@ func (c *Channel) GetBaseUrl() string {
 	return bestURL
 }
 
-func (c *Channel) GetChannelKey() ChannelKey {
+func (c *Channel) GetAvailableKeys() []ChannelKey {
 	if c == nil || len(c.Keys) == 0 {
-		return ChannelKey{}
+		return nil
 	}
 
 	nowSec := time.Now().Unix()
 
-	best := ChannelKey{}
-	bestCost := 0.0
-	bestSet := false
-
+	keys := make([]ChannelKey, 0, len(c.Keys))
 	for _, k := range c.Keys {
 		if !k.Enabled || k.ChannelKey == "" {
 			continue
@@ -141,15 +139,27 @@ func (c *Channel) GetChannelKey() ChannelKey {
 				continue
 			}
 		}
-		if !bestSet || k.TotalCost < bestCost {
-			best = k
-			bestCost = k.TotalCost
-			bestSet = true
-		}
+		keys = append(keys, k)
 	}
 
-	if !bestSet {
+	// Prefer cheaper keys first.
+	slices.SortFunc(keys, func(a, b ChannelKey) int {
+		switch {
+		case a.TotalCost < b.TotalCost:
+			return -1
+		case a.TotalCost > b.TotalCost:
+			return 1
+		default:
+			return 0
+		}
+	})
+	return keys
+}
+
+func (c *Channel) GetChannelKey() ChannelKey {
+	keys := c.GetAvailableKeys()
+	if len(keys) == 0 {
 		return ChannelKey{}
 	}
-	return best
+	return keys[0]
 }

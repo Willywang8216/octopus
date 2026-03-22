@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"sync"
 	"time"
 
@@ -26,6 +27,9 @@ var relayLogSubscribersLock sync.RWMutex
 
 var relayLogStreamTokens = make(map[string]struct{})
 var relayLogStreamTokensLock sync.RWMutex
+
+var relayLogVacuumLock sync.Mutex
+var relayLogLastVacuum time.Time
 
 func RelayLogStreamTokenCreate() (string, error) {
 	bytes := make([]byte, 32)
@@ -158,7 +162,13 @@ func RelayLogSaveDBTask(ctx context.Context) error {
 		if err := relayLogFlushToDB(ctx); err != nil {
 			return err
 		}
-		return relayLogCleanup(ctx)
+		if err := relayLogCleanup(ctx); err != nil {
+			return err
+		}
+		if err := relayLogEnforceMaxRows(ctx); err != nil {
+			return err
+		}
+		return relayLogMaybeVacuum(ctx)
 	}
 
 	// 如果未启用日志保存，检查缓存大小，如果超过限制则清理旧日志
@@ -184,6 +194,79 @@ func relayLogCleanup(ctx context.Context) error {
 
 	cutoffTime := time.Now().Add(-time.Duration(keepPeriod) * 24 * time.Hour).Unix()
 	return db.GetDB().WithContext(ctx).Where("time < ?", cutoffTime).Delete(&model.RelayLog{}).Error
+}
+
+func relayLogEnforceMaxRows(ctx context.Context) error {
+	maxRows, err := SettingGetInt(model.SettingKeyRelayLogMaxRows)
+	if err != nil {
+		return err
+	}
+	if maxRows <= 0 {
+		return nil
+	}
+
+	gormDB := db.GetDB().WithContext(ctx)
+	var count int64
+	if err := gormDB.Model(&model.RelayLog{}).Count(&count).Error; err != nil {
+		return err
+	}
+	if count <= int64(maxRows) {
+		return nil
+	}
+
+	toDelete := count - int64(maxRows)
+	const batchSize int64 = 5000
+	for toDelete > 0 {
+		batch := batchSize
+		if toDelete < batch {
+			batch = toDelete
+		}
+
+		ids := make([]int64, 0, batch)
+		if err := gormDB.Model(&model.RelayLog{}).Order("id ASC").Limit(int(batch)).Pluck("id", &ids).Error; err != nil {
+			return err
+		}
+		if len(ids) == 0 {
+			return nil
+		}
+		if err := gormDB.Where("id IN ?", ids).Delete(&model.RelayLog{}).Error; err != nil {
+			return err
+		}
+		toDelete -= int64(len(ids))
+	}
+
+	return nil
+}
+
+func relayLogMaybeVacuum(ctx context.Context) error {
+	intervalHours, err := SettingGetInt(model.SettingKeyRelayLogVacuumInterval)
+	if err != nil {
+		return err
+	}
+	if intervalHours <= 0 {
+		return nil
+	}
+	if db.GetDB().Dialector == nil || db.GetDB().Dialector.Name() != "sqlite" {
+		return nil
+	}
+
+	relayLogVacuumLock.Lock()
+	defer relayLogVacuumLock.Unlock()
+
+	interval := time.Duration(intervalHours) * time.Hour
+	if !relayLogLastVacuum.IsZero() && time.Since(relayLogLastVacuum) < interval {
+		return nil
+	}
+	relayLogLastVacuum = time.Now()
+
+	gormDB := db.GetDB().WithContext(ctx)
+	if err := gormDB.Exec("PRAGMA wal_checkpoint(TRUNCATE);").Error; err != nil {
+		return fmt.Errorf("relay log vacuum wal checkpoint failed: %w", err)
+	}
+	if err := gormDB.Exec("PRAGMA incremental_vacuum;").Error; err != nil {
+		return fmt.Errorf("relay log incremental_vacuum failed: %w", err)
+	}
+	return nil
 }
 
 // RelayLogList 查询日志列表，支持可选的时间范围过滤

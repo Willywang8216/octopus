@@ -1,7 +1,9 @@
 package relay
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -42,7 +44,8 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 	apiKeyID := c.GetInt("api_key_id")
 
 	// 获取通道分组
-	group, err := op.GroupGetEnabledMap(requestModel, c.Request.Context())
+	requestModel := internalRequest.Model
+	group, err := op.GroupGetMap(requestModel, c.Request.Context())
 	if err != nil {
 		resp.Error(c, http.StatusNotFound, "model not found")
 		return
@@ -144,16 +147,131 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 			metrics.Save(c.Request.Context(), true, nil, iter.Attempts())
 			return
 		}
-		if result.Written {
-			metrics.Save(c.Request.Context(), false, result.Err, iter.Attempts())
-			return
+
+		for i := 0; i < itemCount; i++ {
+			select {
+			case <-c.Request.Context().Done():
+				log.Infof("request context canceled, stopping retry")
+				return
+			default:
+			}
+
+			channel, err := op.ChannelGet(item.ChannelID, c.Request.Context())
+			if err != nil {
+				log.Warnf("failed to get channel: %v", err)
+				lastErr = err
+				item = b.Next(group.Items, item)
+				continue
+			}
+			if channel.Enabled == false {
+				log.Warnf("channel %s is disabled", channel.Name)
+				lastErr = fmt.Errorf("channel %s is disabled", channel.Name)
+				item = b.Next(group.Items, item)
+				continue
+			}
+
+			log.Infof("request model %s, mode: %d, forwarding to channel: %s model: %s (round %d/%d, item %d/%d)", requestModel, group.Mode, channel.Name, item.ModelName, round+1, maxRounds, i+1, itemCount)
+
+			attemptRequest := *internalRequest
+			attemptRequest.Model = item.ModelName
+			if channel.ParamOverride != nil && strings.TrimSpace(*channel.ParamOverride) != "" {
+				if err := json.Unmarshal([]byte(*channel.ParamOverride), &attemptRequest); err != nil {
+					log.Warnf("failed to apply param override for channel %s: %v", channel.Name, err)
+				}
+				// Never allow override to change routing target.
+				attemptRequest.Model = item.ModelName
+			}
+
+			metrics.SetChannel(channel.ID, channel.Name, item.ModelName)
+
+			outAdapter := outbound.Get(channel.Type)
+			if outAdapter == nil {
+				log.Warnf("unsupported channel type: %d for channel: %s", channel.Type, channel.Name)
+				lastErr = fmt.Errorf("unsupported channel type: %d", channel.Type)
+				item = b.Next(group.Items, item)
+				continue
+			}
+
+			// 验证 channel 类型与请求类型匹配
+			if attemptRequest.IsEmbeddingRequest() && !outbound.IsEmbeddingChannelType(channel.Type) {
+
+				log.Warnf("channel type %d is not compatible with embedding request for channel: %s", channel.Type, channel.Name)
+				lastErr = fmt.Errorf("channel type %d not compatible with embedding request", channel.Type)
+				item = b.Next(group.Items, item)
+				continue
+			}
+
+			if attemptRequest.IsChatRequest() && !outbound.IsChatChannelType(channel.Type) {
+				log.Warnf("channel type %d is not compatible with chat request for channel: %s", channel.Type, channel.Name)
+				lastErr = fmt.Errorf("channel type %d not compatible with chat request", channel.Type)
+				item = b.Next(group.Items, item)
+				continue
+			}
+
+			if channel.GetBaseUrl() == "" {
+				log.Warnf("no base url for channel %s", channel.Name)
+				lastErr = fmt.Errorf("no base url for channel %s", channel.Name)
+				item = b.Next(group.Items, item)
+				continue
+			}
+
+			keys := channel.GetAvailableKeys()
+			if len(keys) == 0 {
+				log.Warnf("no available key for channel %s", channel.Name)
+				lastErr = fmt.Errorf("no available key for channel %s", channel.Name)
+				item = b.Next(group.Items, item)
+				continue
+			}
+
+			var channelKeyErr error
+			for keyIndex := range keys {
+				rc := &relayContext{
+					c:                    c,
+					inAdapter:            inAdapter,
+					outAdapter:           outAdapter,
+					internalRequest:      &attemptRequest,
+					channel:              channel,
+					metrics:              metrics,
+					usedKey:              keys[keyIndex],
+					firstTokenTimeOutSec: group.FirstTokenTimeOut,
+				}
+
+				if statusCode, err := rc.forward(); err == nil {
+					rc.collectResponse()
+					rc.usedKey.StatusCode = statusCode
+					rc.usedKey.LastUseTimeStamp = time.Now().Unix()
+					rc.usedKey.TotalCost += metrics.Stats.InputCost + metrics.Stats.OutputCost
+					op.ChannelKeyUpdate(rc.usedKey)
+					metrics.Save(c.Request.Context(), true, nil)
+					return
+				} else {
+					rc.usedKey.StatusCode = statusCode
+					rc.usedKey.LastUseTimeStamp = time.Now().Unix()
+					op.ChannelKeyUpdate(rc.usedKey)
+					if c.Writer.Written() {
+						// Streaming responses may have already started; retrying would corrupt the client stream.
+						rc.collectResponse()
+						metrics.Save(c.Request.Context(), false, err)
+						return
+					}
+					channelKeyErr = err
+					continue
+				}
+			}
+
+			lastErr = fmt.Errorf("channel %s all keys failed: %v", channel.Name, channelKeyErr)
+			item = b.Next(group.Items, item)
 		}
 		lastErr = result.Err
 	}
 
 	// 所有通道都失败
-	metrics.Save(c.Request.Context(), false, lastErr, iter.Attempts())
-	resp.Error(c, http.StatusBadGateway, "all channels failed")
+	metrics.Save(c.Request.Context(), false, lastErr)
+	msg := "all channels failed"
+	if lastErr != nil {
+		msg = fmt.Sprintf("all channels failed: %v", lastErr)
+	}
+	resp.Error(c, http.StatusBadGateway, msg)
 }
 
 // attempt 统一管理一次通道尝试的完整生命周期
@@ -269,9 +387,10 @@ func (ra *relayAttempt) forward() (int, error) {
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		body, err := io.ReadAll(response.Body)
 		if err != nil {
-			return 0, fmt.Errorf("failed to read response body: %w", err)
+			return response.StatusCode, fmt.Errorf("failed to read response body: %w", err)
 		}
-		return 0, fmt.Errorf("upstream error: %d: %s", response.StatusCode, string(body))
+		rc.maybeAutoDisableKey(response.StatusCode, body)
+		return response.StatusCode, fmt.Errorf("upstream error: %d: %s", response.StatusCode, string(body))
 	}
 
 	// 处理响应
@@ -285,6 +404,47 @@ func (ra *relayAttempt) forward() (int, error) {
 		return 0, err
 	}
 	return response.StatusCode, nil
+}
+
+func (rc *relayContext) maybeAutoDisableKey(statusCode int, body []byte) {
+	enabled, err := op.SettingGetBool(dbmodel.SettingKeyChannelKeyAutoDisableEnabled)
+	if err != nil || !enabled {
+		return
+	}
+	if rc == nil || rc.channel == nil {
+		return
+	}
+	if rc.usedKey.ID == 0 || rc.usedKey.ChannelID == 0 {
+		return
+	}
+	if !rc.usedKey.Enabled {
+		return
+	}
+	if statusCode != http.StatusUnauthorized && statusCode != http.StatusForbidden && statusCode != http.StatusPaymentRequired {
+		return
+	}
+
+	lower := bytes.ToLower(body)
+	// Some upstreams require stream=true; do not disable keys for this.
+	if bytes.Contains(lower, []byte("stream must be set to true")) {
+		return
+	}
+
+	reason := strings.TrimSpace(string(body))
+	if len(reason) > 256 {
+		reason = reason[:256]
+	}
+
+	prevRemark := strings.TrimSpace(rc.usedKey.Remark)
+	rc.usedKey.Enabled = false
+	rc.usedKey.Remark = fmt.Sprintf("auto-disabled: status=%d time=%s reason=%s", statusCode, time.Now().UTC().Format(time.RFC3339), reason)
+	if prevRemark != "" {
+		rc.usedKey.Remark += " | prev=" + prevRemark
+	}
+
+	if err := op.ChannelKeyUpdate(rc.usedKey); err != nil {
+		log.Warnf("failed to auto-disable channel key %d for channel %s: %v", rc.usedKey.ID, rc.channel.Name, err)
+	}
 }
 
 // copyHeaders 复制请求头，过滤 hop-by-hop 头

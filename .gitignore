@@ -36,3 +36,7 @@ build
 static/out/*
 !static/out/README.md
 .vscode
+
+# local env files (do not commit secrets)
+.octopus.env
+scripts/ops/.octopus.env
