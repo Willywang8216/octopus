@@ -1,12 +1,9 @@
-package relay
-
-import (
+</old_code><new_code> (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
+et/http"
 	"slices"
 	"strings"
 	"time"
@@ -46,8 +43,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 	metrics.SetInternalRequest(internalRequest)
 	metrics.SetAPIKeyID(apiKeyID)
 	// 获取通道分组
-	requestModel := internalRequest.Model
-	group, err := op.GroupGetMap(requestModel, c.Request.Context())
+	group, err := op.GroupGetMap(internalRequest.Model, c.Request.Context())
 	if err != nil {
 		resp.Error(c, http.StatusNotFound, "model not found")
 		return
@@ -86,18 +82,9 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 				continue
 			}
 
-			log.Infof("request model %s, mode: %d, forwarding to channel: %s model: %s (round %d/%d, item %d/%d)", requestModel, group.Mode, channel.Name, item.ModelName, round+1, maxRounds, i+1, itemCount)
+			log.Infof("request model %s, mode: %d, forwarding to channel: %s model: %s (round %d/%d, item %d/%d)", internalRequest.Model, group.Mode, channel.Name, item.ModelName, round+1, maxRounds, i+1, itemCount)
 
-			attemptRequest := *internalRequest
-			attemptRequest.Model = item.ModelName
-			if channel.ParamOverride != nil && strings.TrimSpace(*channel.ParamOverride) != "" {
-				if err := json.Unmarshal([]byte(*channel.ParamOverride), &attemptRequest); err != nil {
-					log.Warnf("failed to apply param override for channel %s: %v", channel.Name, err)
-				}
-				// Never allow override to change routing target.
-				attemptRequest.Model = item.ModelName
-			}
-
+			internalRequest.Model = item.ModelName
 			metrics.SetChannel(channel.ID, channel.Name, item.ModelName)
 
 			outAdapter := outbound.Get(channel.Type)
@@ -109,24 +96,16 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 			}
 
 			// 验证 channel 类型与请求类型匹配
-			if attemptRequest.IsEmbeddingRequest() && !outbound.IsEmbeddingChannelType(channel.Type) {
-
+			if internalRequest.IsEmbeddingRequest() && !outbound.IsEmbeddingChannelType(channel.Type) {
 				log.Warnf("channel type %d is not compatible with embedding request for channel: %s", channel.Type, channel.Name)
 				lastErr = fmt.Errorf("channel type %d not compatible with embedding request", channel.Type)
 				item = b.Next(group.Items, item)
 				continue
 			}
 
-			if attemptRequest.IsChatRequest() && !outbound.IsChatChannelType(channel.Type) {
+			if internalRequest.IsChatRequest() && !outbound.IsChatChannelType(channel.Type) {
 				log.Warnf("channel type %d is not compatible with chat request for channel: %s", channel.Type, channel.Name)
 				lastErr = fmt.Errorf("channel type %d not compatible with chat request", channel.Type)
-				item = b.Next(group.Items, item)
-				continue
-			}
-
-			if channel.GetBaseUrl() == "" {
-				log.Warnf("no base url for channel %s", channel.Name)
-				lastErr = fmt.Errorf("no base url for channel %s", channel.Name)
 				item = b.Next(group.Items, item)
 				continue
 			}
@@ -135,17 +114,11 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 				c:                    c,
 				inAdapter:            inAdapter,
 				outAdapter:           outAdapter,
-				internalRequest:      &attemptRequest,
+				internalRequest:      internalRequest,
 				channel:              channel,
 				metrics:              metrics,
 				usedKey:              channel.GetChannelKey(),
 				firstTokenTimeOutSec: group.FirstTokenTimeOut,
-			}
-			if rc.usedKey.ID == 0 || strings.TrimSpace(rc.usedKey.ChannelKey) == "" {
-				log.Warnf("no available key for channel %s", channel.Name)
-				lastErr = fmt.Errorf("no available key for channel %s", channel.Name)
-				item = b.Next(group.Items, item)
-				continue
 			}
 
 			if statusCode, err := rc.forward(); err == nil {
@@ -297,15 +270,16 @@ func (rc *relayContext) maybeAutoDisableKey(statusCode int, body []byte) {
 	}
 }
 
-// copyHeaders 复制请求头，过滤 hop-by-hop 头
-func (rc *relayContext) copyHeaders(outboundRequest *http.Request) {
-	for key, values := range rc.c.Request.Header {
-		if hopByHopHeaders[strings.ToLower(key)] {
-			continue
-		}
-		for _, value := range values {
-			outboundRequest.Header.Set(key, value)
-		}
+// collectResponse 收集响应信息
+func (rc *relayContext) collectResponse() {
+	internalResponse, err := rc.inAdapter.GetInternalResponse(rc.c.Request.Context())
+	if err != nil || internalResponse == nil {
+		return
+	}
+
+	// 设置响应内容
+	rc.metrics.SetInternalResponse(internalResponse)
+}
 	}
 	if len(rc.channel.CustomHeader) > 0 {
 		for _, header := range rc.channel.CustomHeader {
@@ -466,17 +440,24 @@ func (rc *relayContext) handleResponse(ctx context.Context, response *http.Respo
 		return fmt.Errorf("failed to transform inbound response: %w", err)
 	}
 
-	rc.c.Data(http.StatusOK, "application/json", inResponse)
-	return nil
-}
-
-// collectResponse 收集响应信息
-func (rc *relayContext) collectResponse() {
-	internalResponse, err := rc.inAdapter.GetInternalResponse(rc.c.Request.Context())
-	if err != nil || internalResponse == nil {
+	rc.c.Data(http.StatusOK, "application/json", inResp</old_code><new_code>func (rc *relayContext) maybeAutoDisableKey(statusCode int, body []byte) {
+	enabled, err := op.SettingGetBool(dbmodel.SettingKeyChannelKeyAutoDisableEnabled)
+	if err != nil || !enabled {
+		return
+	}
+	if rc == nil || rc.channel == nil {
+		return
+	}
+	if rc.usedKey.ID == 0 || rc.usedKey.ChannelID == 0 {
+		return
+	}
+	if !rc.usedKey.Enabled {
+		return
+	}
+	if statusCode != http.StatusUnauthorized && statusCode != http.StatusForbidden && statusCode != http.StatusPaymentRequired {
 		return
 	}
 
-	// 设置响应内容
-	rc.metrics.SetInternalResponse(internalResponse)
-}
+	lower := bytes.ToLower(body)
+	// Some upstreams require stream=true; do not disable keys for this.
+	if bytes.Contains(lower, []byte("stream must be

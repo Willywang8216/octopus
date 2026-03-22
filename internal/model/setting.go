@@ -16,7 +16,64 @@ const (
 	SettingKeyRelayLogKeepPeriod      SettingKey = "relay_log_keep_period"      // 日志保存时间范围(天)
 	SettingKeyRelayLogKeepEnabled     SettingKey = "relay_log_keep_enabled"     // 是否保留历史日志
 	SettingKeyCORSAllowOrigins        SettingKey = "cors_allow_origins"         // 跨域白名单(逗号分隔, 如 "example.com,example2.com"). 为空不允许跨域, "*"允许所有
+
+	// Channel key maintenance.
+	SettingKeyChannelKeyAutoDisableEnabled SettingKey = "channel_key_auto_disable_enabled" // 是否在运行时自动禁用明显不可用的 key（如 401/403/402）
+	SettingKeyChannelKeyRecheckInterval    SettingKey = "channel_key_recheck_interval"     // 重新检测 auto-disabled key 的周期(分钟)
+	SettingKeyChannelKeySaveInterval       SettingKey = "channel_key_save_interval"        // 将运行时更新的 ChannelKey 写入数据库的周期(分钟)
 )
+
+const (
+	SettingValueTrue  = "true"
+	SettingValueFalse = "false"
+)
+
+func isBoolSettingValue(s string) bool {
+	return s == SettingValueTrue || s == SettingValueFalse
+}
+
+func isIntSettingValue(s string) bool {
+	_, err := strconv.Atoi(s)
+	return err == nil
+}
+
+func isNonNegativeIntSettingValue(s string) bool {
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return false
+	}
+	return n >= 0
+}
+
+func isPositiveIntSettingValue(s string) bool {
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return false
+	}
+	return n > 0
+}
+
+func isValidProxyURLValue(s string) error {
+	if s == "" {
+		return nil
+	}
+	parsedURL, err := url.Parse(s)
+	if err != nil {
+		return fmt.Errorf("proxy URL is invalid: %w", err)
+	}
+	validSchemes := map[string]bool{
+		"http":  true,
+		"https": true,
+		"socks": true,
+	}
+	if !validSchemes[parsedURL.Scheme] {
+		return fmt.Errorf("proxy URL scheme must be http, https, or socks")
+	}
+	if parsedURL.Host == "" {
+		return fmt.Errorf("proxy URL must have a host")
+	}
+	return nil
+}
 
 type Setting struct {
 	Key   SettingKey `json:"key" gorm:"primaryKey"`
@@ -31,43 +88,33 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyModelInfoUpdateInterval, Value: "24"}, // 默认24小时更新一次模型信息
 		{Key: SettingKeySyncLLMInterval, Value: "24"},         // 默认24小时同步一次LLM
 		{Key: SettingKeyRelayLogKeepPeriod, Value: "7"},       // 默认日志保存7天
-		{Key: SettingKeyRelayLogKeepEnabled, Value: "true"},   // 默认保留历史日志
+		{Key: SettingKeyRelayLogKeepEnabled, Value: SettingValueTrue},
+
+		{Key: SettingKeyChannelKeyAutoDisableEnabled, Value: SettingValueTrue},
+		{Key: SettingKeyChannelKeyRecheckInterval, Value: "60"},
+		{Key: SettingKeyChannelKeySaveInterval, Value: "10"},
 	}
 }
 
 func (s *Setting) Validate() error {
 	switch s.Key {
 	case SettingKeyModelInfoUpdateInterval, SettingKeySyncLLMInterval, SettingKeyRelayLogKeepPeriod:
-		_, err := strconv.Atoi(s.Value)
-		if err != nil {
-			return fmt.Errorf("model info update interval must be an integer")
+		if !isIntSettingValue(s.Value) {
+			return fmt.Errorf("%s must be an integer", s.Key)
 		}
 		return nil
-	case SettingKeyRelayLogKeepEnabled:
-		if s.Value != "true" && s.Value != "false" {
-			return fmt.Errorf("relay log keep enabled must be true or false")
+	case SettingKeyStatsSaveInterval, SettingKeyChannelKeyRecheckInterval, SettingKeyChannelKeySaveInterval:
+		if !isPositiveIntSettingValue(s.Value) {
+			return fmt.Errorf("%s must be a positive integer", s.Key)
+		}
+		return nil
+	case SettingKeyRelayLogKeepEnabled, SettingKeyChannelKeyAutoDisableEnabled:
+		if !isBoolSettingValue(s.Value) {
+			return fmt.Errorf("%s must be true or false", s.Key)
 		}
 		return nil
 	case SettingKeyProxyURL:
-		if s.Value == "" {
-			return nil
-		}
-		parsedURL, err := url.Parse(s.Value)
-		if err != nil {
-			return fmt.Errorf("proxy URL is invalid: %w", err)
-		}
-		validSchemes := map[string]bool{
-			"http":  true,
-			"https": true,
-			"socks": true,
-		}
-		if !validSchemes[parsedURL.Scheme] {
-			return fmt.Errorf("proxy URL scheme must be http, https, or socks")
-		}
-		if parsedURL.Host == "" {
-			return fmt.Errorf("proxy URL must have a host")
-		}
-		return nil
+		return isValidProxyURLValue(s.Value)
 	}
 
 	return nil
