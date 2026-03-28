@@ -120,9 +120,7 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 			continue
 		}
 
-		log.Infof("request model %s, mode: %d, forwarding to channel: %s model: %s (attempt %d/%d, sticky=%t)",
-			requestModel, group.Mode, channel.Name, item.ModelName,
-			iter.Index()+1, iter.Len(), iter.IsSticky())
+		log.Infof("request model %s, mode: %d, forwarding to channel: %s model: %s (attempt %d/%d, sticky=%t)", requestModel, group.Mode, channel.Name, item.ModelName, iter.Index()+1, iter.Len(), iter.IsSticky())
 
 		for _, usedKey := range keys {
 			if iter.SkipCircuitBreak(channel.ID, usedKey.ID, channel.Name) {
