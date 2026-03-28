@@ -70,6 +70,8 @@ type relayAttempt struct {
 	outAdapter           model.Outbound
 	channel              *dbmodel.Channel
 	usedKey              dbmodel.ChannelKey
+	attemptRequest       *model.InternalLLMRequest
+	groupItemID          int
 	firstTokenTimeOutSec int
 }
 

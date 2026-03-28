@@ -452,6 +452,10 @@
         "card": {
             "requestCount": "請求次數",
             "totalCost": "總成本",
+            "status": {
+                "noMoney": "餘額不足",
+                "badGateway": "網關錯誤"
+            },
             "toast": {
                 "enabled": "供應源已啟用",
                 "disabled": "供應源已停用"

@@ -12,6 +12,9 @@ export interface GroupItem {
     model_name: string;
     priority: number;
     weight: number;
+    enabled?: boolean;
+    disabled_at?: number;
+    disabled_reason?: string;
 }
 
 /**

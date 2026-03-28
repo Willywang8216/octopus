@@ -452,6 +452,10 @@
         "card": {
             "requestCount": "请求次数",
             "totalCost": "总成本",
+            "status": {
+                "noMoney": "余额不足",
+                "badGateway": "网关错误"
+            },
             "toast": {
                 "enabled": "渠道已启用",
                 "disabled": "渠道已禁用"

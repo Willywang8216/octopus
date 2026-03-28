@@ -20,10 +20,18 @@ const (
 	SettingKeyRelayLogVacuumInterval  SettingKey = "relay_log_vacuum_interval"  // SQLite 进行 checkpoint/vacuum 的周期(小时, 0=关闭)
 	SettingKeyCORSAllowOrigins        SettingKey = "cors_allow_origins"         // 跨域白名单(逗号分隔, 如 "example.com,example2.com"). 为空不允许跨域, "*"允许所有
 
+	// Circuit breaker.
+	SettingKeyCircuitBreakerThreshold  SettingKey = "circuit_breaker_threshold"   // 熔断触发阈值(连续失败次数)
+	SettingKeyCircuitBreakerCooldown   SettingKey = "circuit_breaker_cooldown"    // 基础冷却时间(秒)
+	SettingKeyCircuitBreakerMaxCooldown SettingKey = "circuit_breaker_max_cooldown" // 最大冷却时间(秒)
+
 	// Channel key maintenance.
 	SettingKeyChannelKeyAutoDisableEnabled SettingKey = "channel_key_auto_disable_enabled" // 是否在运行时自动禁用明显不可用的 key（如 401/403/402）
 	SettingKeyChannelKeyRecheckInterval    SettingKey = "channel_key_recheck_interval"     // 重新检测 auto-disabled key 的周期(分钟)
 	SettingKeyChannelKeySaveInterval       SettingKey = "channel_key_save_interval"        // 将运行时更新的 ChannelKey 写入数据库的周期(分钟)
+
+	// Group item maintenance.
+	SettingKeyGroupItemRecheckInterval SettingKey = "group_item_recheck_interval" // 重新检测 auto-disabled group item 的周期(分钟)
 )
 
 const (
@@ -96,9 +104,14 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyRelayLogMaxContentBytes, Value: "32768"},
 		{Key: SettingKeyRelayLogVacuumInterval, Value: "24"},
 
+		{Key: SettingKeyCircuitBreakerThreshold, Value: "5"},
+		{Key: SettingKeyCircuitBreakerCooldown, Value: "60"},
+		{Key: SettingKeyCircuitBreakerMaxCooldown, Value: "600"},
+
 		{Key: SettingKeyChannelKeyAutoDisableEnabled, Value: SettingValueTrue},
 		{Key: SettingKeyChannelKeyRecheckInterval, Value: "60"},
 		{Key: SettingKeyChannelKeySaveInterval, Value: "10"},
+		{Key: SettingKeyGroupItemRecheckInterval, Value: "180"},
 	}
 }
 
@@ -109,7 +122,9 @@ func (s *Setting) Validate() error {
 			return fmt.Errorf("%s must be an integer", s.Key)
 		}
 		return nil
-	case SettingKeyStatsSaveInterval, SettingKeyChannelKeyRecheckInterval, SettingKeyChannelKeySaveInterval:
+	case SettingKeyStatsSaveInterval, SettingKeyChannelKeyRecheckInterval, SettingKeyChannelKeySaveInterval,
+		SettingKeyCircuitBreakerThreshold, SettingKeyCircuitBreakerCooldown, SettingKeyCircuitBreakerMaxCooldown,
+		SettingKeyGroupItemRecheckInterval:
 		if !isPositiveIntSettingValue(s.Value) {
 			return fmt.Errorf("%s must be a positive integer", s.Key)
 		}

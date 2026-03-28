@@ -66,9 +66,6 @@ func GroupGetEnabledMap(name string, ctx context.Context) (model.Group, error) {
 }
 
 func GroupCreate(group *model.Group, ctx context.Context) error {
-	for i := range group.Items {
-		group.Items[i].Enabled = true
-	}
 	if err := db.GetDB().WithContext(ctx).Create(group).Error; err != nil {
 		return err
 	}
@@ -122,6 +119,7 @@ func GroupUpdate(req *model.GroupUpdateRequest, ctx context.Context) (*model.Gro
 		}
 	}
 
+	// 删除 items
 	if len(req.ItemsToDelete) > 0 {
 		if err := tx.Where("id IN ? AND group_id = ?", req.ItemsToDelete, req.ID).Delete(&model.GroupItem{}).Error; err != nil {
 			tx.Rollback()
@@ -129,6 +127,7 @@ func GroupUpdate(req *model.GroupUpdateRequest, ctx context.Context) (*model.Gro
 		}
 	}
 
+	// 批量更新 items
 	if len(req.ItemsToUpdate) > 0 {
 		ids := make([]int, len(req.ItemsToUpdate))
 		priorityCase := "CASE id"
@@ -152,17 +151,18 @@ func GroupUpdate(req *model.GroupUpdateRequest, ctx context.Context) (*model.Gro
 		}
 	}
 
+	// 批量新增 items
 	if len(req.ItemsToAdd) > 0 {
 		newItems := make([]model.GroupItem, len(req.ItemsToAdd))
 		for i, item := range req.ItemsToAdd {
 			newItems[i] = model.GroupItem{
-				GroupID:   req.ID,
-				ChannelID: item.ChannelID,
-				ModelName: item.ModelName,
-				Priority:  item.Priority,
-				Weight:    item.Weight,
-				Enabled:   true,
-			}
+			GroupID:   req.ID,
+			ChannelID: item.ChannelID,
+			ModelName: item.ModelName,
+			Priority:  item.Priority,
+			Weight:    item.Weight,
+			Enabled:   true,
+		}
 		}
 		if err := tx.Create(&newItems).Error; err != nil {
 			tx.Rollback()
@@ -174,6 +174,7 @@ func GroupUpdate(req *model.GroupUpdateRequest, ctx context.Context) (*model.Gro
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
+	// 刷新缓存并返回最新数据
 	if err := groupRefreshCacheByID(req.ID, ctx); err != nil {
 		return nil, err
 	}
@@ -221,7 +222,9 @@ func GroupItemAdd(item *model.GroupItem, ctx context.Context) error {
 	if _, ok := groupCache.Get(item.GroupID); !ok {
 		return fmt.Errorf("group not found")
 	}
-	item.Enabled = true
+	if item.Enabled == false {
+		item.Enabled = true
+	}
 
 	if err := db.GetDB().WithContext(ctx).Create(item).Error; err != nil {
 		return err
@@ -272,8 +275,7 @@ func GroupItemBatchAdd(groupID int, items []model.GroupIDAndLLMName, ctx context
 			ModelName: it.ModelName,
 			Priority:  nextPriority,
 			Weight:    1,
-			Enabled:   true,
-		})
+			Enabled:  )
 		nextPriority++
 	}
 
@@ -296,10 +298,7 @@ func GroupItemUpdate(item *model.GroupItem, ctx context.Context) error {
 		return err
 	}
 
-	return groupRefreshCacheByID(item.GroupID, ctx)
-}
-
-func GroupItemDel(id int, ctx context.Context) error {
+	return groupRefreshCacheByID(i</old_code><new_code>func GroupItemDel(id int, ctx context.Context) error {
 	var item model.GroupItem
 	if err := db.GetDB().WithContext(ctx).First(&item, id).Error; err != nil {
 		return fmt.Errorf("group item not found")
@@ -321,7 +320,7 @@ func GroupItemDisable(id int, reason string, ctx context.Context) error {
 		return nil
 	}
 
-	r := strings.TrimSpace(reason)
+	r = strings.TrimSpace(reason)
 	if len(r) > 256 {
 		r = r[:256]
 	}
@@ -363,6 +362,21 @@ func GroupItemEnable(id int, ctx context.Context) error {
 	return groupRefreshCacheByID(item.GroupID, ctx)
 }
 
+func GroupItemDisable(id int, reason string, ctx context.Context) error {
+	var item model.GroupItem
+	if err := db.GetDB().WithContext(ctx).First(&item, id).Error; err != nil {
+		return fmt.Errorf("group item not found")
+	}
+	if !item.Enabled {
+		return nil
+	}
+
+	r = strings.TrimSpace(reason)
+	if len(r) > 256 {
+		r = r[:256]
+	}
+
+	
 // GroupItemBatchDelByChannelAndModels 根据渠道ID和模型名称批量删除分组项
 func GroupItemBatchDelByChannelAndModels(keys []model.GroupIDAndLLMName, ctx context.Context) error {
 	if len(keys) == 0 {

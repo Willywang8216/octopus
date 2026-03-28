@@ -452,6 +452,10 @@
         "card": {
             "requestCount": "Requests",
             "totalCost": "Total Cost",
+            "status": {
+                "noMoney": "No money",
+                "badGateway": "Bad gateway"
+            },
             "toast": {
                 "enabled": "Channel enabled",
                 "disabled": "Channel disabled"

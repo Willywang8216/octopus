@@ -16,9 +16,10 @@ const (
 	TaskRelayLogSave     = "relay_log_save"
 	TaskSyncLLM          = "sync_llm"
 	TaskCleanLLM         = "clean_llm"
-	TaskBaseUrlDelay     = "base_url_delay"
-	TaskChannelKeySave   = "channel_key_save"
+	TaskBaseUrlDelay      = "base_url_delay"
+	TaskChannelKeySave    = "channel_key_save"
 	TaskChannelKeyRecheck = "channel_key_recheck"
+	TaskGroupItemRecheck  = "group_item_recheck"
 )
 
 func Init() {
@@ -82,4 +83,12 @@ func Init() {
 		return
 	}
 	Register(TaskChannelKeyRecheck, time.Duration(recheckIntervalMinutes)*time.Minute, false, ChannelKeyRecheckTask)
+
+	// 定期重试 auto-disabled group items
+	groupItemRecheckIntervalMinutes, err := op.SettingGetInt(model.SettingKeyGroupItemRecheckInterval)
+	if err != nil {
+		log.Warnf("failed to get group item recheck interval: %v", err)
+		return
+	}
+	Register(TaskGroupItemRecheck, time.Duration(groupItemRecheckIntervalMinutes)*time.Minute, false, GroupItemRecheckTask)
 }

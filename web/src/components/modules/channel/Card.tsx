@@ -12,6 +12,7 @@ import { useTranslations } from 'next-intl';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/animate-ui/components/animate/tooltip';
 import { Switch } from '@/components/ui/switch';
 import { toast } from '@/components/common/Toast';
+import { Badge } from '@/components/ui/badge';
 
 export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; stats: StatsMetricsFormatted; layout?: 'grid' | 'list' }) {
     const t = useTranslations('channel.card');
@@ -32,6 +33,15 @@ export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; st
         ...splitModels(channel.custom_model),
     ]).size;
     const enabledKeyCount = channel.keys.filter((item) => item.enabled).length;
+
+    const showStatus = channel.enabled && enabledKeyCount === 0 && channel.keys.length > 0;
+    const hasNoMoney = showStatus && channel.keys.some((k) => !k.enabled && (k.remark ?? '').includes('category=no_money'));
+    const hasBadGateway = showStatus && channel.keys.some((k) => !k.enabled && (k.remark ?? '').includes('category=bad_gateway'));
+    const statusLabel = hasNoMoney
+        ? t('status.noMoney')
+        : hasBadGateway
+            ? t('status.badGateway')
+            : '';
 
     const handleEnableChange = (checked: boolean) => {
         enableChannel.mutate(
@@ -58,12 +68,20 @@ export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; st
                             </TooltipTrigger>
                             <TooltipContent key={channel.name}>{channel.name}</TooltipContent>
                         </Tooltip>
-                        <Switch
-                            checked={channel.enabled}
-                            onCheckedChange={handleEnableChange}
-                            disabled={enableChannel.isPending}
-                            onClick={(e) => e.stopPropagation()}
-                        />
+
+                        <div className="flex items-center gap-2 shrink-0">
+                            {statusLabel && (
+                                <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+                                    {statusLabel}
+                                </Badge>
+                            )}
+                            <Switch
+                                checked={channel.enabled}
+                                onCheckedChange={handleEnableChange}
+                                disabled={enableChannel.isPending}
+                                onClick={(e) => e.stopPropagation()}
+                            />
+                        </div>
                     </header>
 
                     {isListLayout ? (
