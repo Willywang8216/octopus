@@ -3,7 +3,9 @@ package op
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
@@ -134,8 +136,15 @@ func ChannelUpdate(req *model.ChannelUpdateRequest, ctx context.Context) (*model
 		updates.Type = *req.Type
 	}
 	if req.Enabled != nil {
-		selectFields = append(selectFields, "enabled")
+		selectFields = append(selectFields, "enabled", "auto_disabled", "disabled_at", "disabled_reason")
 		updates.Enabled = *req.Enabled
+		updates.AutoDisabled = false
+		updates.DisabledReason = ""
+		if *req.Enabled {
+			updates.DisabledAt = 0
+		} else {
+			updates.DisabledAt = time.Now().Unix()
+		}
 	}
 	if req.BaseUrls != nil {
 		selectFields = append(selectFields, "base_urls")
@@ -254,10 +263,101 @@ func ChannelEnabled(id int, enabled bool, ctx context.Context) error {
 	if !ok {
 		return fmt.Errorf("channel not found")
 	}
-	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).Where("id = ?", id).Update("enabled", enabled).Error; err != nil {
+
+	updates := map[string]interface{}{
+		"enabled": enabled,
+		// user toggle should override auto-disable state
+		"auto_disabled":  false,
+		"disabled_reason": "",
+	}
+	if enabled {
+		updates["disabled_at"] = int64(0)
+	} else {
+		updates["disabled_at"] = time.Now().Unix()
+	}
+
+	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).Where("id = ?", id).Updates(updates).Error; err != nil {
 		return err
 	}
+
 	oldChannel.Enabled = enabled
+	oldChannel.AutoDisabled = false
+	oldChannel.DisabledReason = ""
+	if enabled {
+		oldChannel.DisabledAt = 0
+	} else {
+		oldChannel.DisabledAt = updates["disabled_at"].(int64)
+	}
+	channelCache.Set(id, oldChannel)
+	return nil
+}
+
+// ChannelAutoDisable marks the channel as disabled by the system (all keys disabled / upstream consistently failing).
+func ChannelAutoDisable(id int, reason string, ctx context.Context) error {
+	oldChannel, ok := channelCache.Get(id)
+	if !ok {
+		return fmt.Errorf("channel not found")
+	}
+	if !oldChannel.Enabled && oldChannel.AutoDisabled {
+		return nil
+	}
+
+	r := strings.TrimSpace(reason)
+	if len(r) > 512 {
+		r = r[:512]
+	}
+
+	updates := map[string]interface{}{
+		"enabled":        false,
+		"auto_disabled":  true,
+		"disabled_at":    time.Now().Unix(),
+		"disabled_reason": r,
+	}
+	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+		return err
+	}
+
+	oldChannel.Enabled = false
+	oldChannel.AutoDisabled = true
+	oldChannel.DisabledAt = updates["disabled_at"].(int64)
+	oldChannel.DisabledReason = r
+	channelCache.Set(id, oldChannel)
+	return nil
+}
+
+// ChannelAutoEnable re-enables a channel that was auto-disabled.
+func ChannelAutoEnable(id int, ctx context.Context) error {
+	oldChannel, ok := channelCache.Get(id)
+	if !ok {
+		return fmt.Errorf("channel not found")
+	}
+	if !oldChannel.AutoDisabled {
+		return nil
+	}
+
+	prev := strings.TrimSpace(oldChannel.DisabledReason)
+	msg := "auto-reenabled: time=" + time.Now().UTC().Format(time.RFC3339)
+	if prev != "" {
+		msg += " | prev=" + prev
+	}
+	if len(msg) > 512 {
+		msg = msg[:512]
+	}
+
+	updates := map[string]interface{}{
+		"enabled":        true,
+		"auto_disabled":  false,
+		"disabled_at":    int64(0),
+		"disabled_reason": msg,
+	}
+	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+		return err
+	}
+
+	oldChannel.Enabled = true
+	oldChannel.AutoDisabled = false
+	oldChannel.DisabledAt = 0
+	oldChannel.DisabledReason = msg
 	channelCache.Set(id, oldChannel)
 	return nil
 }

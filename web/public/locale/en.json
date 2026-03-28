@@ -454,7 +454,8 @@
             "totalCost": "Total Cost",
             "status": {
                 "noMoney": "No money",
-                "badGateway": "Bad gateway"
+                "badGateway": "Bad gateway",
+                "autoDisabled": "Auto disabled"
             },
             "toast": {
                 "enabled": "Channel enabled",

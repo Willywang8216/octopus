@@ -454,7 +454,8 @@
             "totalCost": "總成本",
             "status": {
                 "noMoney": "餘額不足",
-                "badGateway": "網關錯誤"
+                "badGateway": "網關錯誤",
+                "autoDisabled": "自動停用"
             },
             "toast": {
                 "enabled": "供應源已啟用",

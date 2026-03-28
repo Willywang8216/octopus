@@ -34,14 +34,17 @@ export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; st
     ]).size;
     const enabledKeyCount = channel.keys.filter((item) => item.enabled).length;
 
-    const showStatus = channel.enabled && enabledKeyCount === 0 && channel.keys.length > 0;
-    const hasNoMoney = showStatus && channel.keys.some((k) => !k.enabled && (k.remark ?? '').includes('category=no_money'));
-    const hasBadGateway = showStatus && channel.keys.some((k) => !k.enabled && (k.remark ?? '').includes('category=bad_gateway'));
+    const showStatus = (channel.enabled && enabledKeyCount === 0 && channel.keys.length > 0) || (!channel.enabled && channel.auto_disabled);
+    const statusSource = `${channel.disabled_reason ?? ''} ${channel.keys.map((k) => k.remark ?? '').join(' ')}`;
+    const hasNoMoney = showStatus && statusSource.includes('category=no_money');
+    const hasBadGateway = showStatus && statusSource.includes('category=bad_gateway');
     const statusLabel = hasNoMoney
         ? t('status.noMoney')
         : hasBadGateway
             ? t('status.badGateway')
-            : '';
+            : showStatus
+                ? t('status.autoDisabled')
+                : '';
 
     const handleEnableChange = (checked: boolean) => {
         enableChannel.mutate(
@@ -71,9 +74,16 @@ export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; st
 
                         <div className="flex items-center gap-2 shrink-0">
                             {statusLabel && (
-                                <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
-                                    {statusLabel}
-                                </Badge>
+                                <Tooltip side="top" sideOffset={10} align="center">
+                                    <TooltipTrigger asChild>
+                                        <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+                                            {statusLabel}
+                                        </Badge>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                        {channel.auto_disabled && channel.disabled_reason ? channel.disabled_reason : statusLabel}
+                                    </TooltipContent>
+                                </Tooltip>
                             )}
                             <Switch
                                 checked={channel.enabled}

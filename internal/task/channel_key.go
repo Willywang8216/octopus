@@ -31,7 +31,8 @@ func ChannelKeyRecheckTask() {
 
 	now := time.Now()
 	for _, ch := range channels {
-		if !ch.Enabled {
+		// Only auto-recheck keys on enabled channels, or channels that were auto-disabled by the system.
+		if !ch.Enabled && !ch.AutoDisabled {
 			continue
 		}
 		if ch.GetBaseUrl() == "" {
@@ -42,7 +43,13 @@ func ChannelKeyRecheckTask() {
 			if k.Enabled {
 				continue
 			}
-			if !strings.HasPrefix(strings.TrimSpace(k.Remark), autoDisabledKeyRemarkPrefix) {
+			remark := strings.TrimSpace(k.Remark)
+			if !strings.HasPrefix(remark, autoDisabledKeyRemarkPrefix) {
+				continue
+			}
+			cat := parseAutoDisabledCategory(remark)
+			// Only recheck temporary categories; do not recheck no_money / invalid_key.
+			if cat != "bad_gateway" {
 				continue
 			}
 			if k.ChannelKey == "" {
@@ -83,7 +90,31 @@ func ChannelKeyRecheckTask() {
 				log.Warnf("failed to re-enable channel key %d for channel %s: %v", k.ID, ch.Name, err)
 				continue
 			}
+
+			if ch.AutoDisabled && !ch.Enabled {
+				if err := op.ChannelAutoEnable(ch.ID, ctx); err != nil {
+					log.Warnf("failed to auto-enable channel %s after key recovery: %v", ch.Name, err)
+				} else {
+					log.Infof("auto-enabled channel %s after key recovery", ch.Name)
+				}
+			}
+
 			log.Infof("re-enabled channel key %d for channel %s", k.ID, ch.Name)
 		}
 	}
+}
+
+func parseAutoDisabledCategory(remark string) string {
+	// Format: auto-disabled: category=<cat> ...
+	idx := strings.Index(remark, "category=")
+	if idx < 0 {
+		return ""
+	}
+	s := remark[idx+len("category="):]
+	end := strings.IndexByte(s, ' ')
+	if end < 0 {
+		end = len(s)
+	}
+	cat := strings.TrimSpace(s[:end])
+	return cat
 }

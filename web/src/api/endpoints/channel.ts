@@ -54,6 +54,9 @@ export type Channel = {
     name: string;
     type: ChannelType;
     enabled: boolean;
+    auto_disabled: boolean;
+    disabled_at: number;
+    disabled_reason: string;
     base_urls: BaseUrl[];
     keys: ChannelKey[];
     model: string;

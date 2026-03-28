@@ -454,7 +454,8 @@
             "totalCost": "总成本",
             "status": {
                 "noMoney": "余额不足",
-                "badGateway": "网关错误"
+                "badGateway": "网关错误",
+                "autoDisabled": "自动禁用"
             },
             "toast": {
                 "enabled": "渠道已启用",

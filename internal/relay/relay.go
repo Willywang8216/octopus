@@ -97,12 +97,8 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 		keyID := keys[0].ID
 
 		outAdapter := outbound.Get(channel.Type)
-Type)
 		if outAdapter == nil {
-			iter.Skip(channel.ID, 0, channel.Name, fmt.Sprintf("unsupported channel type: %d", channel.Type))
-			continue
-		}
-, usedKey.ID, channel.Name, fmt.Sprintf("unsupported channel type: %d", channel.Type))
+			iter.Skip(channel.ID, keyID, channel.Name, fmt.Sprintf("unsupported channel type: %d", channel.Type))
 			continue
 		}
 
@@ -342,29 +338,54 @@ func (ra *relayAttempt) maybeAutoDisableKey(statusCode int, body []byte) {
 		return
 	}
 
+	// Rate limit should be temporary; Channel.GetAvailableKeys() already backs off for 5 minutes.
+	if statusCode == http.StatusTooManyRequests {
+		return
+	}
+
 	category := ""
 	shouldDisable := false
-	if statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden || statusCode == http.StatusPaymentRequired {
-		shouldDisable = true
-	}
-	if statusCode == http.StatusBadGateway {
-		if bytes.Contains(lower, []byte("cloudflare")) || bytes.Contains(lower, []byte("bad gateway")) {
-			shouldDisable = true
-			category = "bad_gateway"
-		}
-	}
-	if bytes.Contains(lower, []byte("insufficient")) || bytes.Contains(lower, []byte("balance_insufficient")) || bytes.Contains(lower, []byte("insufficient_user_quota")) || bytes.Contains(lower, []byte("insufficient_fund")) || bytes.Contains(lower, []byte("\u9884\u6263\u8d39\u989d\u5ea6\u5931\u8d25")) {
+
+	// no_money (insufficient funds / quota)
+	if bytes.Contains(lower, []byte("insufficient")) ||
+		bytes.Contains(lower, []byte("balance_insufficient")) ||
+		bytes.Contains(lower, []byte("insufficient_user_quota")) ||
+		bytes.Contains(lower, []byte("insufficient_fund")) ||
+		bytes.Contains(lower, []byte("\u4f59\u989d\u4e0d\u8db3")) ||
+		bytes.Contains(lower, []byte("\u989d\u5ea6\u4e0d\u8db3")) ||
+		bytes.Contains(lower, []byte("\u9884\u6263\u8d39\u989d\u5ea6\u5931\u8d25")) {
 		shouldDisable = true
 		category = "no_money"
 	}
-	if bytes.Contains(lower, []byte("api key")) || bytes.Contains(lower, []byte("apikey")) {
-		if bytes.Contains(lower, []byte("invalid")) || bytes.Contains(lower, []byte("unauthorized")) || bytes.Contains(lower, []byte("block")) {
-			shouldDisable = true
-			if category == "" {
-				category = "invalid_key"
-			}
+
+	// bad_gateway / temporary upstream failures
+	if statusCode == http.StatusBadGateway || statusCode == http.StatusGatewayTimeout || statusCode == 520 || statusCode == 522 || statusCode == 524 {
+		shouldDisable = true
+		if category == "" {
+			category = "bad_gateway"
 		}
 	}
+	if bytes.Contains(lower, []byte("cloudflare")) || bytes.Contains(lower, []byte("cf-ray")) || bytes.Contains(lower, []byte("bad gateway")) {
+		shouldDisable = true
+		if category == "" {
+			category = "bad_gateway"
+		}
+	}
+
+	// invalid_key / blocked
+	if statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden || statusCode == http.StatusPaymentRequired {
+		shouldDisable = true
+		if category == "" {
+			category = "invalid_key"
+		}
+	}
+	if bytes.Contains(lower, []byte("your request was block")) || bytes.Contains(lower, []byte("request was block")) || bytes.Contains(lower, []byte("request was blocked")) {
+		shouldDisable = true
+		if category == "" {
+			category = "bad_gateway"
+		}
+	}
+
 	if category == "" {
 		category = "http_" + fmt.Sprintf("%d", statusCode)
 	}
@@ -386,7 +407,34 @@ func (ra *relayAttempt) maybeAutoDisableKey(statusCode int, body []byte) {
 
 	if err := op.ChannelKeyUpdate(ra.usedKey); err != nil {
 		log.Warnf("failed to auto-disable channel key %d for channel %s: %v", ra.usedKey.ID, ra.channel.Name, err)
+		return
 	}
+
+	ra.maybeAutoDisableChannel(category, statusCode, reason)
+}
+
+func (ra *relayAttempt) maybeAutoDisableChannel(category string, statusCode int, reason string) {
+	ch, err := op.ChannelGet(ra.channel.ID, ra.c.Request.Context())
+	if err != nil {
+		return
+	}
+	if !ch.Enabled {
+		return
+	}
+
+	for _, k := range ch.Keys {
+		if !k.Enabled {
+			continue
+		}
+		if strings.TrimSpace(k.ChannelKey) == "" {
+			continue
+		}
+		return
+	}
+
+	msg := fmt.Sprintf("auto-disabled: category=%s status=%d time=%s reason=all keys disabled | last=%s",
+		category, statusCode, time.Now().UTC().Format(time.RFC3339), reason)
+	_ = op.ChannelAutoDisable(ch.ID, msg, ra.c.Request.Context())
 }
 
 // copyHeaders 复制请求头，过滤 hop-by-hop 头

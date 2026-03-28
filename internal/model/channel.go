@@ -21,6 +21,9 @@ type Channel struct {
 	Name          string                `json:"name" gorm:"unique;not null"`
 	Type          outbound.OutboundType `json:"type"`
 	Enabled       bool                  `json:"enabled" gorm:"default:true"`
+	AutoDisabled  bool                  `json:"auto_disabled" gorm:"default:false"`
+	DisabledAt    int64                 `json:"disabled_at"`
+	DisabledReason string               `json:"disabled_reason"`
 	BaseUrls      []BaseUrl             `json:"base_urls" gorm:"serializer:json"`
 	Keys          []ChannelKey          `json:"keys" gorm:"foreignKey:ChannelID"`
 	Model         string                `json:"model"`
