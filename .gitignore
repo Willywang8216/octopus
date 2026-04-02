@@ -1,42 +1,43 @@
 # ----------------------------------------------------------------------
 # octllm / octopus local repo .gitignore
-# ----------------------------------------------------------------------
-
 # Local runtime state
 data/
-
 # Local exports/snapshots
 octopus-export-*.json
-
 # Local config/material in the repo root
 channels.json
 groups.json
 urls.txt
 octllmenv
-
 # Common secret/env files
 .env*
-
 # Generic SQLite artifacts
 *.db
 *.sqlite*
 *.wal
 *.shm
-
 # Logs/temp
 *.log
 logs/
 tmp/
-
 # IDE/OS noise
 .vscode/
 .DS_Store
-
 build
 static/out/*
 !static/out/README.md
 .vscode
-
 # local env files (do not commit secrets)
 .octopus.env
-scripts/ops/.octopus.env
+scripts/ops/.octopus.env# Runtime data (SQLite, config, uploads, etc.)
+# The upstream project uses ./data for local state; never commit it.
+# Local exports / snapshots (often contain API keys, prompts, responses)
+# SQLite / embedded DB artifacts (in case a DB is created elsewhere)
+*.sqlite
+*.sqlite3
+*.db-*
+*.sqlite-*
+# Logs / temp
+# Build outputs
+build/
+# IDE / OS
