@@ -2,6 +2,8 @@ package client
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -24,15 +26,47 @@ import (
 // - Keys starting with '.' are treated as suffix matches (e.g. ".9e.nz" matches "free.9e.nz").
 const hostConcurrencyEnvKey = "OCTOPUS_HOST_CONCURRENCY_LIMITS"
 
+// OCTOPUS_HOST_CONCURRENCY_FAILFAST_HOSTS makes Octopus fail fast (skip/failover)
+// instead of waiting when a host is at its concurrency limit.
+//
+// Format: host,host2 (comma/newline/semicolon separated)
+// Examples:
+//   free.9e.nz
+//   free.9e.nz,.9e.nz
+const hostConcurrencyFailfastEnvKey = "OCTOPUS_HOST_CONCURRENCY_FAILFAST_HOSTS"
+
+var ErrHostConcurrencyLimitReached = errors.New("host concurrency limit reached")
+
+type HostConcurrencyLimitError struct {
+	Host  string
+	Limit int
+}
+
+func (e *HostConcurrencyLimitError) Error() string {
+	if e == nil {
+		return ErrHostConcurrencyLimitReached.Error()
+	}
+	if e.Host == "" || e.Limit <= 0 {
+		return ErrHostConcurrencyLimitReached.Error()
+	}
+	return fmt.Sprintf("%s: host=%s limit=%d", ErrHostConcurrencyLimitReached.Error(), e.Host, e.Limit)
+}
+
+func (e *HostConcurrencyLimitError) Unwrap() error { return ErrHostConcurrencyLimitReached }
+
 type hostConcurrencyLimiter struct {
 	mu sync.Mutex
 
-	raw string
+	raw         string
+	failfastRaw string
 
 	// exact host -> limit
 	exact map[string]int
 	// suffixes (including leading '.') -> limit
 	suffix map[string]int
+
+	failfastExact  map[string]struct{}
+	failfastSuffix map[string]struct{}
 
 	sems map[string]chan struct{} // host -> semaphore
 }
@@ -66,54 +100,80 @@ func (l *hostConcurrencyLimiter) normalizeHostKey(key string) string {
 
 func (l *hostConcurrencyLimiter) reloadFromEnvLocked() {
 	raw := strings.TrimSpace(os.Getenv(hostConcurrencyEnvKey))
-	if raw == l.raw {
+	failfastRaw := strings.TrimSpace(os.Getenv(hostConcurrencyFailfastEnvKey))
+	if raw == l.raw && failfastRaw == l.failfastRaw {
 		return
 	}
 
 	l.raw = raw
+	l.failfastRaw = failfastRaw
+
 	l.exact = make(map[string]int)
 	l.suffix = make(map[string]int)
+	l.failfastExact = make(map[string]struct{})
+	l.failfastSuffix = make(map[string]struct{})
 	l.sems = make(map[string]chan struct{})
 
-	if raw == "" {
-		return
-	}
-
-	parts := strings.FieldsFunc(raw, func(r rune) bool {
-		return r == ',' || r == '\n' || r == ';'
-	})
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		kv := strings.SplitN(p, "=", 2)
-		if len(kv) != 2 {
-			continue
-		}
-		k := strings.TrimSpace(kv[0])
-		v := strings.TrimSpace(kv[1])
-
-		limit, err := strconv.Atoi(v)
-		if err != nil || limit <= 0 {
-			continue
-		}
-
-		// Suffix match.
-		if strings.HasPrefix(strings.TrimSpace(k), ".") {
-			sfx := strings.ToLower(strings.TrimSpace(k))
-			if sfx == "." {
+	if raw != "" {
+		parts := strings.FieldsFunc(raw, func(r rune) bool {
+			return r == ',' || r == '\n' || r == ';'
+		})
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p == "" {
 				continue
 			}
-			l.suffix[sfx] = limit
-			continue
-		}
+			kv := strings.SplitN(p, "=", 2)
+			if len(kv) != 2 {
+				continue
+			}
+			k := strings.TrimSpace(kv[0])
+			v := strings.TrimSpace(kv[1])
 
-		host := l.normalizeHostKey(k)
-		if host == "" {
-			continue
+			limit, err := strconv.Atoi(v)
+			if err != nil || limit <= 0 {
+				continue
+			}
+
+			// Suffix match.
+			if strings.HasPrefix(strings.TrimSpace(k), ".") {
+				sfx := strings.ToLower(strings.TrimSpace(k))
+				if sfx == "." {
+					continue
+				}
+				l.suffix[sfx] = limit
+				continue
+			}
+
+			host := l.normalizeHostKey(k)
+			if host == "" {
+				continue
+			}
+			l.exact[host] = limit
 		}
-		l.exact[host] = limit
+	}
+
+	if failfastRaw != "" {
+		parts := strings.FieldsFunc(failfastRaw, func(r rune) bool {
+			return r == ',' || r == '\n' || r == ';'
+		})
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+
+			if strings.HasPrefix(p, ".") {
+				l.failfastSuffix[strings.ToLower(p)] = struct{}{}
+				continue
+			}
+
+			host := l.normalizeHostKey(p)
+			if host == "" {
+				continue
+			}
+			l.failfastExact[host] = struct{}{}
+		}
 	}
 }
 
@@ -136,6 +196,25 @@ func (l *hostConcurrencyLimiter) limitForHostLocked(host string) (int, bool) {
 	return 0, false
 }
 
+func (l *hostConcurrencyLimiter) isFailFastLocked(host string) bool {
+	if host == "" {
+		return false
+	}
+	if _, ok := l.failfastExact[host]; ok {
+		return true
+	}
+	for sfx := range l.failfastSuffix {
+		needle := strings.TrimPrefix(sfx, ".")
+		if needle == "" {
+			continue
+		}
+		if host == needle || strings.HasSuffix(host, "."+needle) {
+			return true
+		}
+	}
+	return false
+}
+
 func (l *hostConcurrencyLimiter) acquire(ctx context.Context, host string) (func(), error) {
 	l.mu.Lock()
 	l.reloadFromEnvLocked()
@@ -144,6 +223,7 @@ func (l *hostConcurrencyLimiter) acquire(ctx context.Context, host string) (func
 		l.mu.Unlock()
 		return func() {}, nil
 	}
+	failFast := l.isFailFastLocked(host)
 
 	sem := l.sems[host]
 	if sem == nil || cap(sem) != limit {
@@ -151,6 +231,15 @@ func (l *hostConcurrencyLimiter) acquire(ctx context.Context, host string) (func
 		l.sems[host] = sem
 	}
 	l.mu.Unlock()
+
+	if failFast {
+		select {
+		case sem <- struct{}{}:
+			return func() { <-sem }, nil
+		default:
+			return nil, &HostConcurrencyLimitError{Host: host, Limit: limit}
+		}
+	}
 
 	select {
 	case sem <- struct{}{}:

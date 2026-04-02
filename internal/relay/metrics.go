@@ -120,19 +120,32 @@ func (m *RelayMetrics) Save(ctx context.Context, success bool, err error, attemp
 }
 
 func finalChannel(attempts []model.ChannelAttempt) (int, string) {
-	var lastID int
-	var lastName string
+	var lastFailedID int
+	var lastFailedName string
+	var lastAnyID int
+	var lastAnyName string
+
 	for i := len(attempts) - 1; i >= 0; i-- {
 		a := attempts[i]
+
+		if lastAnyID == 0 && a.ChannelID != 0 {
+			lastAnyID = a.ChannelID
+			lastAnyName = a.ChannelName
+		}
+
 		if a.Status == model.AttemptSuccess {
 			return a.ChannelID, a.ChannelName
 		}
-		if a.Status == model.AttemptFailed && lastID == 0 {
-			lastID = a.ChannelID
-			lastName = a.ChannelName
+		if a.Status == model.AttemptFailed && lastFailedID == 0 {
+			lastFailedID = a.ChannelID
+			lastFailedName = a.ChannelName
 		}
 	}
-	return lastID, lastName
+
+	if lastFailedID != 0 {
+		return lastFailedID, lastFailedName
+	}
+	return lastAnyID, lastAnyName
 }
 
 func (m *RelayMetrics) saveLog(ctx context.Context, err error, duration time.Duration, attempts []model.ChannelAttempt, channelID int, channelName string) {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bestruirui/octopus/internal/client"
 	"github.com/bestruirui/octopus/internal/helper"
 	dbmodel "github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
@@ -163,6 +165,13 @@ func (ra *relayAttempt) attempt() attemptResult {
 
 	// 转发请求
 	statusCode, fwdErr := ra.forward()
+
+	// Host concurrency fail-fast: treat as a skip so we can fail over immediately.
+	// Do not punish keys / circuit breaker for local admission control.
+	if fwdErr != nil && errors.Is(fwdErr, client.ErrHostConcurrencyLimitReached) {
+		span.End(dbmodel.AttemptSkipped, statusCode, fwdErr.Error())
+		return attemptResult{Success: false, Written: false, Err: fwdErr}
+	}
 
 	// 更新 channel key 状态
 	ra.usedKey.StatusCode = statusCode
