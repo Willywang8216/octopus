@@ -3,6 +3,8 @@ package helper
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -68,6 +70,11 @@ func fetchOpenAIModels(client *http.Client, ctx context.Context, request model.C
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+		return nil, fmt.Errorf("list models failed (status=%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
 
 	var result model.OpenAIModelList
 

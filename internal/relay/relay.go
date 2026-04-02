@@ -148,6 +148,9 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 				metrics.Save(c.Request.Context(), false, result.Err, iter.Attempts())
 				return
 			}
+			if result.SkipChannel {
+				break
+			}
 		}
 	}
 
@@ -170,7 +173,9 @@ func (ra *relayAttempt) attempt() attemptResult {
 	// Do not punish keys / circuit breaker for local admission control.
 	if fwdErr != nil && errors.Is(fwdErr, client.ErrHostConcurrencyLimitReached) {
 		span.End(dbmodel.AttemptSkipped, statusCode, fwdErr.Error())
-		return attemptResult{Success: false, Written: false, Err: fwdErr}
+		// Host-level admission control has nothing to do with a specific key.
+		// Trying other keys would just waste attempts; fail over to the next channel.
+		return attemptResult{Success: false, Written: false, SkipChannel: true, Err: fwdErr}
 	}
 
 	// 更新 channel key 状态
