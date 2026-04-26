@@ -40,8 +40,19 @@ func SyncModelsTask() {
 			log.Warnf("failed to fetch models for channel %s: %v", channel.Name, err)
 			continue
 		}
+		availableModels := make([]string, 0, len(fetchModels))
+		for _, modelName := range xstrings.TrimCompact(fetchModels) {
+			checkCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			err := helper.CheckModelAvailability(checkCtx, channel, modelName)
+			cancel()
+			if err != nil {
+				log.Warnf("model availability check failed (channel=%s model=%s): %v", channel.Name, modelName, err)
+				continue
+			}
+			availableModels = append(availableModels, modelName)
+		}
 		oldModels := xstrings.SplitTrimCompact(",", channel.Model)
-		newModels := xstrings.TrimCompact(fetchModels)
+		newModels := xstrings.TrimCompact(availableModels)
 		for _, m := range newModels {
 			m = strings.TrimSpace(m)
 			if m == "" {

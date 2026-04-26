@@ -20,6 +20,8 @@ type Channel struct {
 	Name          string                `json:"name" gorm:"unique;not null"`
 	Type          outbound.OutboundType `json:"type"`
 	Enabled       bool                  `json:"enabled" gorm:"default:true"`
+	Tags          []ChannelTag          `json:"tags" gorm:"serializer:json"`
+	RetryAfter    int64                 `json:"retry_after"`
 	BaseUrls      []BaseUrl             `json:"base_urls" gorm:"serializer:json"`
 	Keys          []ChannelKey          `json:"keys" gorm:"foreignKey:ChannelID"`
 	Model         string                `json:"model"`
@@ -44,6 +46,13 @@ type CustomHeader struct {
 	HeaderValue string `json:"header_value"`
 }
 
+type ChannelTag string
+
+const (
+	ChannelTagAutoDisabled ChannelTag = "auto_disabled"
+	ChannelTagBillingIssue ChannelTag = "billing_issue"
+)
+
 type ChannelKey struct {
 	ID               int     `json:"id" gorm:"primaryKey"`
 	ChannelID        int     `json:"channel_id"`
@@ -51,6 +60,9 @@ type ChannelKey struct {
 	ChannelKey       string  `json:"channel_key"`
 	StatusCode       int     `json:"status_code"`
 	LastUseTimeStamp int64   `json:"last_use_time_stamp"`
+	RetryAfter       int64   `json:"retry_after"`
+	FailureCount     int     `json:"failure_count"`
+	LastError         string  `json:"last_error"`
 	TotalCost        float64 `json:"total_cost"`
 	Remark           string  `json:"remark"`
 }
@@ -61,6 +73,8 @@ type ChannelUpdateRequest struct {
 	Name          *string                `json:"name,omitempty"`
 	Type          *outbound.OutboundType `json:"type,omitempty"`
 	Enabled       *bool                  `json:"enabled,omitempty"`
+	Tags          *[]ChannelTag          `json:"tags,omitempty"`
+	RetryAfter    *int64                 `json:"retry_after,omitempty"`
 	BaseUrls      *[]BaseUrl             `json:"base_urls,omitempty"`
 	Model         *string                `json:"model,omitempty"`
 	CustomModel   *string                `json:"custom_model,omitempty"`
@@ -134,6 +148,9 @@ func (c *Channel) GetChannelKey() ChannelKey {
 
 	for _, k := range c.Keys {
 		if !k.Enabled || k.ChannelKey == "" {
+			continue
+		}
+		if k.RetryAfter > 0 && nowSec < k.RetryAfter {
 			continue
 		}
 		if k.StatusCode == 429 && k.LastUseTimeStamp > 0 {
