@@ -62,7 +62,7 @@ type ChannelKey struct {
 	LastUseTimeStamp int64   `json:"last_use_time_stamp"`
 	RetryAfter       int64   `json:"retry_after"`
 	FailureCount     int     `json:"failure_count"`
-	LastError         string  `json:"last_error"`
+	LastError        string  `json:"last_error"`
 	TotalCost        float64 `json:"total_cost"`
 	Remark           string  `json:"remark"`
 }
