@@ -179,6 +179,23 @@ export function useDeleteGroup() {
     });
 }
 
+export function useCreateCoderPresetGroups() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (modelName: string) => {
+            return apiClient.post<Group[]>('/api/v1/group/coder-presets', { model_name: modelName });
+        },
+        onSuccess: (data) => {
+            logger.log('编码器预设分组创建成功:', data);
+            queryClient.invalidateQueries({ queryKey: ['groups', 'list'] });
+        },
+        onError: (error) => {
+            logger.error('编码器预设分组创建失败:', error);
+        },
+    });
+}
+
 /**
  * 自动添加分组 item Hook
  *
@@ -205,4 +222,3 @@ export function useDeleteGroup() {
 //         },
 //     });
 // }
-

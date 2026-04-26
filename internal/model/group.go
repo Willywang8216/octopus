@@ -59,3 +59,7 @@ type GroupIDAndLLMName struct {
 	ChannelID int
 	ModelName string
 }
+
+type GroupPresetRequest struct {
+	ModelName string `json:"model_name" binding:"required"`
+}

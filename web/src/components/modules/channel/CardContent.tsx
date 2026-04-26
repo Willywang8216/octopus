@@ -48,6 +48,9 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                 channel_key: k.channel_key,
                 status_code: k.status_code,
                 last_use_time_stamp: k.last_use_time_stamp,
+                retry_after: k.retry_after,
+                failure_count: k.failure_count,
+                last_error: k.last_error,
                 total_cost: k.total_cost,
                 remark: k.remark,
             }))

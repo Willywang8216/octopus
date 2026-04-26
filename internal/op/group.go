@@ -3,10 +3,12 @@ package op
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/utils/cache"
+	"github.com/bestruirui/octopus/internal/utils/xstrings"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -67,6 +69,81 @@ func GroupCreate(group *model.Group, ctx context.Context) error {
 	groupCache.Set(group.ID, *group)
 	groupMap.Set(group.Name, *group)
 	return nil
+}
+
+func GroupCreateCoderPresets(modelName string, ctx context.Context) ([]model.Group, error) {
+	modelName = strings.TrimSpace(modelName)
+	if modelName == "" {
+		return nil, fmt.Errorf("model name is required")
+	}
+
+	targets := []struct {
+		groupName string
+		regex     string
+	}{
+		{groupName: "anthropic-claude-code", regex: "^(claude|anthropic|claude-code)$"},
+		{groupName: "openai-codex", regex: "^(codex|openai-codex)$"},
+	}
+
+	channels, err := ChannelList(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]model.GroupItem, 0)
+	for _, channel := range channels {
+		modelNames := xstrings.SplitTrimCompact(",", channel.Model, channel.CustomModel)
+		for _, name := range modelNames {
+			if strings.EqualFold(name, modelName) {
+				items = append(items, model.GroupItem{
+					ChannelID: channel.ID,
+					ModelName: name,
+					Weight:    1,
+				})
+				break
+			}
+		}
+	}
+	if len(items) == 0 {
+		return nil, fmt.Errorf("model %s is not available in any channel", modelName)
+	}
+
+	created := make([]model.Group, 0, len(targets))
+	for _, target := range targets {
+		if existing, ok := groupMap.Get(target.groupName); ok {
+			pairs := make([]model.GroupIDAndLLMName, len(items))
+			for i, item := range items {
+				pairs[i] = model.GroupIDAndLLMName{ChannelID: item.ChannelID, ModelName: item.ModelName}
+			}
+			if err := GroupItemBatchAdd(existing.ID, pairs, ctx); err != nil {
+				return nil, err
+			}
+			group, err := GroupGet(existing.ID, ctx)
+			if err != nil {
+				return nil, err
+			}
+			created = append(created, *group)
+			continue
+		}
+
+		groupItems := make([]model.GroupItem, len(items))
+		for i, item := range items {
+			groupItems[i] = item
+			groupItems[i].Priority = i + 1
+		}
+		group := model.Group{
+			Name:              target.groupName,
+			Mode:              model.GroupModeFailover,
+			MatchRegex:        target.regex,
+			FirstTokenTimeOut: 30,
+			SessionKeepTime:   0,
+			Items:             groupItems,
+		}
+		if err := GroupCreate(&group, ctx); err != nil {
+			return nil, err
+		}
+		created = append(created, group)
+	}
+	return created, nil
 }
 
 func GroupUpdate(req *model.GroupUpdateRequest, ctx context.Context) (*model.Group, error) {

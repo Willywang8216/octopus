@@ -42,6 +42,9 @@ export type ChannelKey = {
     channel_key: string;
     status_code: number;
     last_use_time_stamp: number;
+    retry_after: number;
+    failure_count: number;
+    last_error: string;
     total_cost: number;
     remark: string;
 };
@@ -54,6 +57,8 @@ export type Channel = {
     name: string;
     type: ChannelType;
     enabled: boolean;
+    tags: string[];
+    retry_after: number;
     base_urls: BaseUrl[];
     keys: ChannelKey[];
     model: string;
@@ -69,10 +74,11 @@ export type Channel = {
 };
 
 // Internal type: backend may return null for slice fields; normalize to [] in select()
-type ChannelServer = Omit<Channel, 'base_urls' | 'custom_header' | 'keys'> & {
+type ChannelServer = Omit<Channel, 'base_urls' | 'custom_header' | 'keys' | 'tags'> & {
     base_urls: BaseUrl[] | null;
     custom_header: CustomHeader[] | null;
     keys: ChannelKey[] | null;
+    tags: string[] | null;
 };
 
 /**
@@ -152,6 +158,7 @@ export function useChannelList() {
                 base_urls: item.base_urls ?? [],
                 custom_header: item.custom_header ?? [],
                 keys: item.keys ?? [],
+                tags: item.tags ?? [],
             }) satisfies Channel,
             formatted: {
                 input_token: formatCount(item.stats.input_token),

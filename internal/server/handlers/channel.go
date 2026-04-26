@@ -154,7 +154,7 @@ func fetchModel(c *gin.Context) {
 		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
 		return
 	}
-	models, err := helper.FetchModels(c.Request.Context(), request)
+	models, err := helper.FetchAvailableModels(c.Request.Context(), request)
 	if err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return

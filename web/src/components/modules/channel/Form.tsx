@@ -21,6 +21,9 @@ export interface ChannelKeyFormItem {
     channel_key: string;
     status_code?: number;
     last_use_time_stamp?: number;
+    retry_after?: number;
+    failure_count?: number;
+    last_error?: string;
     total_cost?: number;
     remark?: string;
 }

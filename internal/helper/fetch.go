@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/transformer/outbound"
@@ -49,6 +50,28 @@ func FetchModels(ctx context.Context, request model.Channel) ([]string, error) {
 		return matchModel, nil
 	}
 	return fetchModel, nil
+}
+
+func FetchAvailableModels(ctx context.Context, request model.Channel) ([]string, error) {
+	models, err := FetchModels(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	availableModels := make([]string, 0, len(models))
+	for _, modelName := range models {
+		modelName = strings.TrimSpace(modelName)
+		if modelName == "" {
+			continue
+		}
+		checkCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		err := CheckModelAvailability(checkCtx, request, modelName)
+		cancel()
+		if err != nil {
+			continue
+		}
+		availableModels = append(availableModels, modelName)
+	}
+	return availableModels, nil
 }
 
 func CheckModelAvailability(ctx context.Context, request model.Channel, modelName string) error {

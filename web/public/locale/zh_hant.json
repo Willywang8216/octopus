@@ -182,6 +182,10 @@
                 "label": "最大冷卻時間（秒）",
                 "placeholder": "請輸入最大冷卻時間"
             },
+            "autoDisableRetryDays": {
+                "label": "自動停用後重試間隔（天）",
+                "placeholder": "請輸入天數"
+            },
             "hint": "當渠道連續失敗達到閾值後觸發熔斷，冷卻時間按指數退避增長，上限為最大冷卻時間"
         },
         "saved": "已儲存",
@@ -353,6 +357,15 @@
             "submit": "建立",
             "submitting": "建立中..."
         },
+        "preset": {
+            "title": "編碼器預設",
+            "modelPlaceholder": "相容模型，例如 agentic-coder",
+            "create": "建立 Claude Code 和 Codex 分組",
+            "creating": "建立中...",
+            "hint": "建立 anthropic-claude-code 和 openai-codex 分組，並指向你選擇的相容模型。",
+            "success": "編碼器預設分組已建立",
+            "failed": "建立編碼器預設分組失敗"
+        },
         "card": {
             "empty": "暫無規則"
         },
@@ -452,6 +465,10 @@
         "card": {
             "requestCount": "請求次數",
             "totalCost": "總成本",
+            "tag": {
+                "autoDisabled": "自動停用",
+                "billingIssue": "餘額/額度問題"
+            },
             "toast": {
                 "enabled": "供應源已啟用",
                 "disabled": "供應源已停用"
