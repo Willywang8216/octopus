@@ -484,7 +484,8 @@
                 "tokens": "Token Usage",
                 "costs": "Cost Details",
                 "baseUrls": "Base URLs",
-                "keys": "Keys"
+                "keys": "Keys",
+                "modelTestResults": "Model Test Results"
             },
             "noBaseUrls": "No Base URLs",
             "noKeys": "No Keys",
@@ -514,7 +515,9 @@
                 "testModel": "Test",
                 "testingModel": "Testing...",
                 "modelAvailable": "Model is available",
-                "modelUnavailable": "Model is unavailable"
+                "modelUnavailable": "Model is unavailable",
+                "testAllModels": "Test Models",
+                "testingAllModels": "Testing..."
             }
         },
         "create": {
@@ -566,7 +569,17 @@
             "matchRegex": "Match Regex",
             "matchRegexPlaceholder": "Optional: regex pattern to match request model names",
             "remark": "Remark",
-            "duplicateError": "A channel with the same API endpoint and key already exists"
+            "duplicateError": "A channel with the same API endpoint and key already exists",
+            "duplicateWarningTitle": "Possible duplicate channels detected",
+            "dupMatchEndpointAndKey": "same endpoint and key",
+            "dupMatchEndpoint": "same endpoint",
+            "dupMatchKey": "same key",
+            "autoDisableTitle": "Auto Disable",
+            "autoDisableHint": "Override global settings for this channel. Leave empty to use global defaults.",
+            "autoDisableThreshold": "Failure threshold",
+            "autoDisableThresholdPlaceholder": "Global default",
+            "autoDisableRetryHours": "Retry after (hours)",
+            "autoDisableRetryPlaceholder": "Global default"
         }
     },
     "autoDisable": {

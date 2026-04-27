@@ -186,6 +186,14 @@ func ChannelUpdate(req *model.ChannelUpdateRequest, ctx context.Context) (*model
 		selectFields = append(selectFields, "match_regex")
 		updates.MatchRegex = req.MatchRegex
 	}
+	if req.AutoDisableThreshold != nil {
+		selectFields = append(selectFields, "auto_disable_threshold")
+		updates.AutoDisableThreshold = req.AutoDisableThreshold
+	}
+	if req.AutoDisableRetryHours != nil {
+		selectFields = append(selectFields, "auto_disable_retry_hours")
+		updates.AutoDisableRetryHours = req.AutoDisableRetryHours
+	}
 
 	// 只有当有字段需要更新时才执行 UPDATE
 	if len(selectFields) > 0 {
@@ -507,11 +515,29 @@ func channelRefreshCacheByID(id int, ctx context.Context) error {
 	return nil
 }
 
+// DuplicateInfo describes a channel that conflicts with a proposed new channel.
+type DuplicateInfo struct {
+	ChannelID   int    `json:"channel_id"`
+	ChannelName string `json:"channel_name"`
+	MatchType   string `json:"match_type"` // "endpoint_and_key", "endpoint", "key"
+}
+
 // ChannelCheckDuplicate checks whether any existing channel (excluding excludeID)
 // already uses the same (base_url, api_key) combination. Returns an error describing
 // the duplicate if found, nil otherwise.
 func ChannelCheckDuplicate(baseUrls []model.BaseUrl, keys []string, excludeID int) error {
-	if len(baseUrls) == 0 || len(keys) == 0 {
+	dupes := ChannelFindDuplicates(baseUrls, keys, excludeID)
+	if len(dupes) == 0 {
+		return nil
+	}
+	d := dupes[0]
+	return fmt.Errorf("duplicate: channel %q (id=%d) already uses the same API endpoint and key", d.ChannelName, d.ChannelID)
+}
+
+// ChannelFindDuplicates returns structured information about existing channels
+// that share the same API endpoint and/or key with the proposed channel data.
+func ChannelFindDuplicates(baseUrls []model.BaseUrl, keys []string, excludeID int) []DuplicateInfo {
+	if len(baseUrls) == 0 && len(keys) == 0 {
 		return nil
 	}
 
@@ -533,24 +559,47 @@ func ChannelCheckDuplicate(baseUrls []model.BaseUrl, keys []string, excludeID in
 		}
 	}
 
+	seen := make(map[int]struct{})
+	var result []DuplicateInfo
+
 	for _, ch := range channelCache.GetAll() {
 		if ch.ID == excludeID {
 			continue
 		}
+		if _, already := seen[ch.ID]; already {
+			continue
+		}
+
+		urlMatch := false
 		for _, existURL := range ch.BaseUrls {
 			norm := model.NormalizeBaseURL(existURL.URL)
-			if _, urlMatch := newURLs[norm]; !urlMatch {
-				continue
-			}
-			for _, existKey := range ch.Keys {
-				keyVal := strings.TrimSpace(existKey.ChannelKey)
-				if _, keyMatch := newKeys[keyVal]; keyMatch {
-					return fmt.Errorf("duplicate: channel %q (id=%d) already uses the same API endpoint and key", ch.Name, ch.ID)
-				}
+			if _, ok := newURLs[norm]; ok {
+				urlMatch = true
+				break
 			}
 		}
+
+		keyMatch := false
+		for _, existKey := range ch.Keys {
+			keyVal := strings.TrimSpace(existKey.ChannelKey)
+			if _, ok := newKeys[keyVal]; ok {
+				keyMatch = true
+				break
+			}
+		}
+
+		if urlMatch && keyMatch {
+			result = append(result, DuplicateInfo{ChannelID: ch.ID, ChannelName: ch.Name, MatchType: "endpoint_and_key"})
+			seen[ch.ID] = struct{}{}
+		} else if urlMatch {
+			result = append(result, DuplicateInfo{ChannelID: ch.ID, ChannelName: ch.Name, MatchType: "endpoint"})
+			seen[ch.ID] = struct{}{}
+		} else if keyMatch {
+			result = append(result, DuplicateInfo{ChannelID: ch.ID, ChannelName: ch.Name, MatchType: "key"})
+			seen[ch.ID] = struct{}{}
+		}
 	}
-	return nil
+	return result
 }
 
 // ChannelSetStatusTag updates a channel's status tag in both DB and cache.

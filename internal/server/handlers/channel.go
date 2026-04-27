@@ -66,6 +66,14 @@ func init() {
 		AddRoute(
 			router.NewRoute("/test-model", http.MethodPost).
 				Handle(testModel),
+		).
+		AddRoute(
+			router.NewRoute("/check-duplicate", http.MethodPost).
+				Handle(checkDuplicate),
+		).
+		AddRoute(
+			router.NewRoute("/test-all-models", http.MethodPost).
+				Handle(testAllModels),
 		)
 }
 
@@ -257,4 +265,70 @@ func testModel(c *gin.Context) {
 		return
 	}
 	resp.Success(c, map[string]interface{}{"available": ok})
+}
+
+func checkDuplicate(c *gin.Context) {
+	var request struct {
+		BaseUrls  []model.BaseUrl `json:"base_urls"`
+		Keys      []string        `json:"keys"`
+		ExcludeID int             `json:"exclude_id"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
+		return
+	}
+	dupes := op.ChannelFindDuplicates(request.BaseUrls, request.Keys, request.ExcludeID)
+	resp.Success(c, dupes)
+}
+
+func testAllModels(c *gin.Context) {
+	var request struct {
+		ChannelID int `json:"channel_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
+		return
+	}
+
+	channel, err := op.ChannelGet(request.ChannelID, c.Request.Context())
+	if err != nil {
+		resp.Error(c, http.StatusNotFound, "channel not found")
+		return
+	}
+
+	// Collect all models from both auto and custom.
+	allModels := make([]string, 0)
+	if channel.Model != "" {
+		for _, m := range strings.Split(channel.Model, ",") {
+			m = strings.TrimSpace(m)
+			if m != "" {
+				allModels = append(allModels, m)
+			}
+		}
+	}
+	if channel.CustomModel != "" {
+		for _, m := range strings.Split(channel.CustomModel, ",") {
+			m = strings.TrimSpace(m)
+			if m != "" {
+				allModels = append(allModels, m)
+			}
+		}
+	}
+
+	type modelResult struct {
+		Model     string `json:"model"`
+		Available bool   `json:"available"`
+		Error     string `json:"error,omitempty"`
+	}
+
+	results := make([]modelResult, 0, len(allModels))
+	for _, m := range allModels {
+		ok, testErr := helper.TestModelAvailability(c.Request.Context(), *channel, m)
+		r := modelResult{Model: m, Available: ok}
+		if testErr != nil {
+			r.Error = testErr.Error()
+		}
+		results = append(results, r)
+	}
+	resp.Success(c, results)
 }

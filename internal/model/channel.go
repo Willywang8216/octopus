@@ -44,8 +44,10 @@ type Channel struct {
 	ChannelProxy  *string               `json:"channel_proxy"`
 	Stats          *StatsChannel         `json:"stats,omitempty" gorm:"foreignKey:ChannelID"`
 	MatchRegex     *string               `json:"match_regex"`
-	StatusTag      string                `json:"status_tag" gorm:"default:''"`
-	AutoDisabledAt *int64                `json:"auto_disabled_at"`
+	StatusTag              string                `json:"status_tag" gorm:"default:''"`
+	AutoDisabledAt         *int64                `json:"auto_disabled_at"`
+	AutoDisableThreshold   *int                  `json:"auto_disable_threshold"`    // Per-channel override; nil = use global
+	AutoDisableRetryHours  *int                  `json:"auto_disable_retry_hours"`  // Per-channel override; nil = use global
 }
 
 type BaseUrl struct {
@@ -91,9 +93,11 @@ type ChannelUpdateRequest struct {
 	AutoSync      *bool                  `json:"auto_sync,omitempty"`
 	AutoGroup     *AutoGroupType         `json:"auto_group,omitempty"`
 	CustomHeader  *[]CustomHeader        `json:"custom_header,omitempty"`
-	ChannelProxy  *string                `json:"channel_proxy,omitempty"`
-	ParamOverride *string                `json:"param_override,omitempty"`
-	MatchRegex    *string                `json:"match_regex,omitempty"`
+	ChannelProxy           *string                `json:"channel_proxy,omitempty"`
+	ParamOverride          *string                `json:"param_override,omitempty"`
+	MatchRegex             *string                `json:"match_regex,omitempty"`
+	AutoDisableThreshold   *int                   `json:"auto_disable_threshold,omitempty"`
+	AutoDisableRetryHours  *int                   `json:"auto_disable_retry_hours,omitempty"`
 
 	KeysToAdd    []ChannelKeyAddRequest    `json:"keys_to_add,omitempty"`
 	KeysToUpdate []ChannelKeyUpdateRequest `json:"keys_to_update,omitempty"`

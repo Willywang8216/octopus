@@ -484,7 +484,8 @@
                 "tokens": "Token 使用",
                 "costs": "成本詳情",
                 "baseUrls": "Base URLs",
-                "keys": "金鑰"
+                "keys": "金鑰",
+                "modelTestResults": "模型測試結果"
             },
             "noBaseUrls": "暫無 Base URL",
             "noKeys": "暫無金鑰",
@@ -514,7 +515,9 @@
                 "testModel": "測試",
                 "testingModel": "測試中...",
                 "modelAvailable": "模型可用",
-                "modelUnavailable": "模型不可用"
+                "modelUnavailable": "模型不可用",
+                "testAllModels": "測試模型",
+                "testingAllModels": "測試中..."
             }
         },
         "create": {
@@ -566,7 +569,17 @@
             "matchRegex": "匹配正規",
             "matchRegexPlaceholder": "可選：用於匹配請求模型名稱的正規表示式",
             "remark": "備註",
-            "duplicateError": "已存在使用相同 API 端點和金鑰的供應源"
+            "duplicateError": "已存在使用相同 API 端點和金鑰的供應源",
+            "duplicateWarningTitle": "偵測到可能重複的供應源",
+            "dupMatchEndpointAndKey": "相同端點和金鑰",
+            "dupMatchEndpoint": "相同端點",
+            "dupMatchKey": "相同金鑰",
+            "autoDisableTitle": "自動停用",
+            "autoDisableHint": "覆蓋全域設定。留空使用全域預設值。",
+            "autoDisableThreshold": "失敗閾值",
+            "autoDisableThresholdPlaceholder": "全域預設",
+            "autoDisableRetryHours": "重試間隔（小時）",
+            "autoDisableRetryPlaceholder": "全域預設"
         }
     },
     "autoDisable": {

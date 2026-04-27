@@ -1,4 +1,4 @@
-import { AutoGroupType, ChannelType, type Channel, useFetchModel } from '@/api/endpoints/channel';
+import { AutoGroupType, ChannelType, type Channel, type DuplicateInfo, useFetchModel, useCheckDuplicate } from '@/api/endpoints/channel';
 import {
     Select,
     SelectContent,
@@ -12,8 +12,8 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/components/common/Toast';
 import { useTranslations } from 'next-intl';
-import { useEffect, useRef, useState } from 'react';
-import { RefreshCw, X, Plus } from 'lucide-react';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { RefreshCw, X, Plus, AlertTriangle } from 'lucide-react';
 
 export interface ChannelKeyFormItem {
     id?: number;
@@ -40,6 +40,8 @@ export interface ChannelFormData {
     auto_sync: boolean;
     auto_group: AutoGroupType;
     match_regex: string;
+    auto_disable_threshold: string;
+    auto_disable_retry_hours: string;
 }
 
 export interface ChannelFormProps {
@@ -52,6 +54,8 @@ export interface ChannelFormProps {
     onCancel?: () => void;
     cancelText?: string;
     idPrefix?: string;
+    /** When editing an existing channel, pass its ID so it's excluded from duplicate checks. */
+    excludeChannelId?: number;
 }
 
 import {
@@ -71,8 +75,36 @@ export function ChannelForm({
     onCancel,
     cancelText,
     idPrefix = 'channel',
+    excludeChannelId = 0,
 }: ChannelFormProps) {
     const t = useTranslations('channel.form');
+
+    // --- Duplicate detection ---
+    const checkDuplicate = useCheckDuplicate();
+    const [duplicates, setDuplicates] = useState<DuplicateInfo[]>([]);
+    const dupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const triggerDupCheck = useCallback(() => {
+        if (dupTimerRef.current) clearTimeout(dupTimerRef.current);
+        dupTimerRef.current = setTimeout(() => {
+            const urls = (formData.base_urls ?? []).filter((u) => u.url.trim());
+            const keys = (formData.keys ?? []).filter((k) => k.channel_key.trim()).map((k) => k.channel_key.trim());
+            if (urls.length === 0 && keys.length === 0) {
+                setDuplicates([]);
+                return;
+            }
+            checkDuplicate.mutate(
+                { base_urls: urls, keys, exclude_id: excludeChannelId },
+                { onSuccess: (data) => setDuplicates(data ?? []) },
+            );
+        }, 500);
+    }, [formData.base_urls, formData.keys, excludeChannelId, checkDuplicate]);
+
+    // Re-check whenever URLs or keys change.
+    useEffect(() => {
+        triggerDupCheck();
+        return () => { if (dupTimerRef.current) clearTimeout(dupTimerRef.current); };
+    }, [triggerDupCheck]);
 
     // Ensure the form always shows at least 1 row for base_urls / keys / custom_header.
     // This avoids "empty list" UI and also keeps URL + APIKEY layout consistent.
@@ -221,8 +253,34 @@ export function ChannelForm({
         onFormDataChange({ ...formData, custom_header: curr.filter((_, i) => i !== idx) });
     };
 
+    const dupMatchLabel = (type: DuplicateInfo['match_type']) => {
+        switch (type) {
+            case 'endpoint_and_key': return t('dupMatchEndpointAndKey');
+            case 'endpoint': return t('dupMatchEndpoint');
+            case 'key': return t('dupMatchKey');
+        }
+    };
+
     return (
         <form onSubmit={onSubmit} className="space-y-4 px-1">
+            {duplicates.length > 0 && (
+                <div className="rounded-xl border border-orange-500/30 bg-orange-500/10 p-3 space-y-2">
+                    <div className="flex items-center gap-2 text-sm font-medium text-orange-700 dark:text-orange-400">
+                        <AlertTriangle className="size-4 shrink-0" />
+                        {t('duplicateWarningTitle')}
+                    </div>
+                    {duplicates.map((d) => (
+                        <div key={d.channel_id} className="flex items-center justify-between text-sm text-orange-700 dark:text-orange-300 pl-6">
+                            <span>
+                                <span className="font-medium">{d.channel_name}</span>
+                                <span className="text-xs ml-2 text-orange-600 dark:text-orange-400/70">({dupMatchLabel(d.match_type)})</span>
+                            </span>
+                            <span className="text-xs text-muted-foreground">ID: {d.channel_id}</span>
+                        </div>
+                    ))}
+                </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                     <label htmlFor={`${idPrefix}-name`} className="text-sm font-medium text-card-foreground">
@@ -573,6 +631,43 @@ export function ChannelForm({
                                 placeholder={t('paramOverridePlaceholder')}
                                 className="min-h-28 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             />
+                        </div>
+
+                        <div className="space-y-2 pt-2 border-t border-border/50">
+                            <label className="text-sm font-medium text-card-foreground">
+                                {t('autoDisableTitle')}
+                            </label>
+                            <p className="text-xs text-muted-foreground">{t('autoDisableHint')}</p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="space-y-1">
+                                    <label htmlFor={`${idPrefix}-auto-disable-threshold`} className="text-xs text-muted-foreground">
+                                        {t('autoDisableThreshold')}
+                                    </label>
+                                    <Input
+                                        id={`${idPrefix}-auto-disable-threshold`}
+                                        type="number"
+                                        min="0"
+                                        value={formData.auto_disable_threshold}
+                                        onChange={(e) => onFormDataChange({ ...formData, auto_disable_threshold: e.target.value })}
+                                        placeholder={t('autoDisableThresholdPlaceholder')}
+                                        className="rounded-xl"
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <label htmlFor={`${idPrefix}-auto-disable-retry`} className="text-xs text-muted-foreground">
+                                        {t('autoDisableRetryHours')}
+                                    </label>
+                                    <Input
+                                        id={`${idPrefix}-auto-disable-retry`}
+                                        type="number"
+                                        min="0"
+                                        value={formData.auto_disable_retry_hours}
+                                        onChange={(e) => onFormDataChange({ ...formData, auto_disable_retry_hours: e.target.value })}
+                                        placeholder={t('autoDisableRetryPlaceholder')}
+                                        className="rounded-xl"
+                                    />
+                                </div>
+                            </div>
                         </div>
                     </AccordionContent>
                 </AccordionItem>
