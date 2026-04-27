@@ -479,7 +479,8 @@
                 "tokens": "Token 使用",
                 "costs": "成本详情",
                 "baseUrls": "Base URLs",
-                "keys": "密钥"
+                "keys": "密钥",
+                "modelTestResults": "模型测试结果"
             },
             "noBaseUrls": "暂无 Base URL",
             "noKeys": "暂无密钥",
@@ -509,7 +510,9 @@
                 "testModel": "测试",
                 "testingModel": "测试中...",
                 "modelAvailable": "模型可用",
-                "modelUnavailable": "模型不可用"
+                "modelUnavailable": "模型不可用",
+                "testAllModels": "测试模型",
+                "testingAllModels": "测试中..."
             }
         },
         "create": {
@@ -561,7 +564,17 @@
             "matchRegex": "匹配正则",
             "matchRegexPlaceholder": "可选：用于匹配请求模型名称的正则表达式",
             "remark": "备注",
-            "duplicateError": "已存在使用相同 API 端点和密钥的渠道"
+            "duplicateError": "已存在使用相同 API 端点和密钥的渠道",
+            "duplicateWarningTitle": "检测到可能重复的渠道",
+            "dupMatchEndpointAndKey": "相同端点和密钥",
+            "dupMatchEndpoint": "相同端点",
+            "dupMatchKey": "相同密钥",
+            "autoDisableTitle": "自动禁用",
+            "autoDisableHint": "覆盖全局设置。留空使用全局默认值。",
+            "autoDisableThreshold": "失败阈值",
+            "autoDisableThresholdPlaceholder": "全局默认",
+            "autoDisableRetryHours": "重试间隔（小时）",
+            "autoDisableRetryPlaceholder": "全局默认"
         }
     },
     "autoDisable": {
