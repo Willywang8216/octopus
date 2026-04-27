@@ -70,7 +70,8 @@
                 "channel": {
                     "all": "All channels",
                     "enabled": "Enabled only",
-                    "disabled": "Disabled only"
+                    "disabled": "Disabled only",
+                    "fundingIssue": "Funding issues"
                 },
                 "group": {
                     "all": "All groups",
@@ -388,7 +389,13 @@
             "failover": "Failover",
             "weighted": "Weighted"
         },
-        "empty": "No groups yet, click the button above to create one"
+        "empty": "No groups yet, click the button above to create one",
+        "createAgentic": {
+            "button": "Create Agentic Groups",
+            "creating": "Creating...",
+            "success": "Agentic coding groups created",
+            "failed": "Failed to create agentic groups"
+        }
     },
     "model": {
         "create": {
@@ -449,6 +456,11 @@
         }
     },
     "channel": {
+        "statusTag": {
+            "autoDisabled": "Auto Disabled",
+            "insufficientFunds": "No Funds",
+            "quotaExceeded": "Quota Exceeded"
+        },
         "card": {
             "requestCount": "Requests",
             "totalCost": "Total Cost",
@@ -495,7 +507,14 @@
                 "saving": "Saving...",
                 "delete": "Delete",
                 "confirmDelete": "Confirm Delete",
-                "deleting": "Deleting..."
+                "deleting": "Deleting...",
+                "checkModels": "Check Models",
+                "checkingModels": "Checking...",
+                "checkModelsSuccess": "Model check triggered",
+                "testModel": "Test",
+                "testingModel": "Testing...",
+                "modelAvailable": "Model is available",
+                "modelUnavailable": "Model is unavailable"
             }
         },
         "create": {
@@ -546,7 +565,28 @@
             "autoGroupRegex": "Regex",
             "matchRegex": "Match Regex",
             "matchRegexPlaceholder": "Optional: regex pattern to match request model names",
-            "remark": "Remark"
+            "remark": "Remark",
+            "duplicateError": "A channel with the same API endpoint and key already exists"
         }
+    },
+    "autoDisable": {
+        "title": "Auto Disable",
+        "threshold": {
+            "label": "Failure Threshold (consecutive failures to disable key)",
+            "placeholder": "Enter threshold"
+        },
+        "retryHours": {
+            "label": "Retry After (hours)",
+            "placeholder": "Enter hours"
+        },
+        "hint": "Keys are auto-disabled after consecutive failures. When all keys in a channel are disabled, the channel is auto-disabled and retried after the configured period"
+    },
+    "modelCheck": {
+        "title": "Model Availability",
+        "interval": {
+            "label": "Check Interval (hours)",
+            "placeholder": "Enter hours"
+        },
+        "hint": "Periodically checks if the model list for each auto-sync channel is up to date"
     }
 }

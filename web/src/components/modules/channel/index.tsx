@@ -31,6 +31,11 @@ export function Channel() {
 
         if (filter === 'enabled') return byName.filter((c) => c.raw.enabled);
         if (filter === 'disabled') return byName.filter((c) => !c.raw.enabled);
+        if (filter === 'funding-issue') return byName.filter((c) =>
+            c.raw.status_tag === 'insufficient_funds' ||
+            c.raw.status_tag === 'quota_exceeded' ||
+            c.raw.keys.some((k) => k.status_tag === 'insufficient_funds' || k.status_tag === 'quota_exceeded')
+        );
 
         return byName;
     }, [sortedChannels, searchTerm, filter]);

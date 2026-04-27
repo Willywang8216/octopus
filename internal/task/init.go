@@ -16,10 +16,9 @@ const (
 	TaskRelayLogSave     = "relay_log_save"
 	TaskSyncLLM          = "sync_llm"
 	TaskCleanLLM         = "clean_llm"
-	TaskBaseUrlDelay      = "base_url_delay"
-	TaskChannelKeySave    = "channel_key_save"
-	TaskChannelKeyRecheck = "channel_key_recheck"
-	TaskGroupItemRecheck  = "group_item_recheck"
+	TaskBaseUrlDelay     = "base_url_delay"
+	TaskAutoDisableRetry = "auto_disable_retry"
+	TaskModelCheck       = "model_check"
 )
 
 func Init() {
@@ -76,19 +75,14 @@ func Init() {
 		}
 	})
 
-	// 定期重试 auto-disabled keys
-	recheckIntervalMinutes, err := op.SettingGetInt(model.SettingKeyChannelKeyRecheckInterval)
-	if err != nil {
-		log.Warnf("failed to get channel key recheck interval: %v", err)
-		return
-	}
-	Register(TaskChannelKeyRecheck, time.Duration(recheckIntervalMinutes)*time.Minute, false, ChannelKeyRecheckTask)
+	// 注册自动禁用重试任务（每小时检查一次）
+	Register(TaskAutoDisableRetry, 1*time.Hour, false, AutoDisableRetryTask)
 
-	// 定期重试 auto-disabled group items
-	groupItemRecheckIntervalMinutes, err := op.SettingGetInt(model.SettingKeyGroupItemRecheckInterval)
-	if err != nil {
-		log.Warnf("failed to get group item recheck interval: %v", err)
-		return
+	// 注册模型可用性检查任务
+	modelCheckIntervalHours, err := op.SettingGetInt(model.SettingKeyModelCheckInterval)
+	if err != nil || modelCheckIntervalHours <= 0 {
+		modelCheckIntervalHours = 24
 	}
-	Register(TaskGroupItemRecheck, time.Duration(groupItemRecheckIntervalMinutes)*time.Minute, false, GroupItemRecheckTask)
+	modelCheckInterval := time.Duration(modelCheckIntervalHours) * time.Hour
+	Register(TaskModelCheck, modelCheckInterval, false, ModelAvailabilityCheckTask)
 }

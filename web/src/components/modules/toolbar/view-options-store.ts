@@ -7,7 +7,7 @@ export type ToolbarSortField = 'name' | 'created';
 export type ToolbarCreatedSortablePage = 'channel' | 'group';
 export const TOOLBAR_PAGES = ['channel', 'group', 'model'] as const;
 export type ToolbarPage = (typeof TOOLBAR_PAGES)[number];
-export type ChannelFilter = 'all' | 'enabled' | 'disabled';
+export type ChannelFilter = 'all' | 'enabled' | 'disabled' | 'funding-issue';
 export type GroupFilter = 'all' | 'with-members' | 'empty';
 export type ModelFilter = 'all' | 'priced' | 'free';
 

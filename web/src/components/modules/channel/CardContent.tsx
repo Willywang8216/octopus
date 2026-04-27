@@ -9,9 +9,12 @@ import {
     Activity,
     TrendingUp,
     Globe,
-    Key
+    Key,
+    RefreshCw,
+    AlertTriangle,
+    Ban,
 } from 'lucide-react';
-import { useUpdateChannel, useDeleteChannel, type Channel, type UpdateChannelRequest } from '@/api/endpoints/channel';
+import { useUpdateChannel, useDeleteChannel, useCheckModels, type Channel, type UpdateChannelRequest } from '@/api/endpoints/channel';
 import {
     MorphingDialogTitle,
     MorphingDialogDescription,
@@ -31,6 +34,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
     const { setIsOpen } = useMorphingDialog();
     const updateChannel = useUpdateChannel();
     const deleteChannel = useDeleteChannel();
+    const checkModels = useCheckModels();
     const [isEditing, setIsEditing] = useState(false);
     const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
     const [formData, setFormData] = useState<ChannelFormData>({
@@ -370,6 +374,25 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                                 )}
 
                                                 <div className="flex items-center gap-2 shrink-0">
+                                                    {key.status_tag === 'insufficient_funds' && (
+                                                        <Badge className="h-5 px-1.5 text-[10px] gap-1 bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-500/30">
+                                                            <AlertTriangle className="size-2.5" />
+                                                            No Funds
+                                                        </Badge>
+                                                    )}
+                                                    {key.status_tag === 'quota_exceeded' && (
+                                                        <Badge className="h-5 px-1.5 text-[10px] gap-1 bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-500/30">
+                                                            <AlertTriangle className="size-2.5" />
+                                                            Quota
+                                                        </Badge>
+                                                    )}
+                                                    {key.status_tag === 'auto_disabled' && (
+                                                        <Badge variant="destructive" className="h-5 px-1.5 text-[10px] gap-1">
+                                                            <Ban className="size-2.5" />
+                                                            Auto Off
+                                                        </Badge>
+                                                    )}
+
                                                     {key.last_use_time_stamp > 0 && (
                                                         <span className="text-xs text-muted-foreground whitespace-nowrap hidden sm:inline-block">
                                                             {new Date(key.last_use_time_stamp * 1000).toLocaleString()}
@@ -422,13 +445,22 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                             </div>
 
                             {/* 操作按钮 */}
-                            <div className="grid gap-3 sm:grid-cols-2 pt-2">
+                            <div className="grid gap-3 sm:grid-cols-3 pt-2">
                                 <Button
                                     onClick={() => (isConfirmingDelete ? setIsConfirmingDelete(false) : setIsEditing(true))}
                                     variant={isConfirmingDelete ? 'secondary' : 'default'}
                                     className="w-full rounded-2xl h-12"
                                 >
                                     {isConfirmingDelete ? t('actions.cancel') : t('actions.edit')}
+                                </Button>
+                                <Button
+                                    onClick={() => checkModels.mutate(channel.id)}
+                                    disabled={checkModels.isPending}
+                                    variant="outline"
+                                    className="w-full rounded-2xl h-12"
+                                >
+                                    <RefreshCw className={`size-4 ${checkModels.isPending ? 'animate-spin' : ''}`} />
+                                    {checkModels.isPending ? t('actions.checkingModels') : t('actions.checkModels')}
                                 </Button>
                                 <Button
                                     onClick={handleDeleteClick}

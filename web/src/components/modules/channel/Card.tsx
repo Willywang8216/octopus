@@ -4,13 +4,14 @@ import {
     MorphingDialogContainer,
     MorphingDialogContent,
 } from '@/components/ui/morphing-dialog';
-import { CheckCircle2, DollarSign, Key, Layers, MessageSquare, XCircle } from 'lucide-react';
+import { AlertTriangle, Ban, CheckCircle2, DollarSign, Key, Layers, MessageSquare, XCircle } from 'lucide-react';
 import { type StatsMetricsFormatted } from '@/api/endpoints/stats';
 import { type Channel, useEnableChannel } from '@/api/endpoints/channel';
 import { CardContent } from './CardContent';
 import { useTranslations } from 'next-intl';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/animate-ui/components/animate/tooltip';
 import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
 import { toast } from '@/components/common/Toast';
 import { Badge } from '@/components/ui/badge';
 
@@ -19,8 +20,38 @@ export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; st
     const tForm = useTranslations('channel.form');
     const tSections = useTranslations('channel.detail.sections');
     const tMetrics = useTranslations('channel.detail.metrics');
+    const tTag = useTranslations('channel.statusTag');
     const enableChannel = useEnableChannel();
     const isListLayout = layout === 'list';
+
+    const statusTagBadge = (() => {
+        if (!channel.status_tag) return null;
+        switch (channel.status_tag) {
+            case 'auto_disabled':
+                return (
+                    <Badge variant="destructive" className="h-5 px-1.5 text-[10px] gap-1">
+                        <Ban className="size-3" />
+                        {tTag('autoDisabled')}
+                    </Badge>
+                );
+            case 'insufficient_funds':
+                return (
+                    <Badge className="h-5 px-1.5 text-[10px] gap-1 bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-500/30">
+                        <AlertTriangle className="size-3" />
+                        {tTag('insufficientFunds')}
+                    </Badge>
+                );
+            case 'quota_exceeded':
+                return (
+                    <Badge className="h-5 px-1.5 text-[10px] gap-1 bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-500/30">
+                        <AlertTriangle className="size-3" />
+                        {tTag('quotaExceeded')}
+                    </Badge>
+                );
+            default:
+                return null;
+        }
+    })();
 
     const splitModels = (models: string) =>
         models
@@ -65,33 +96,21 @@ export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; st
             <MorphingDialogTrigger className="w-full">
                 <article className="flex flex-col gap-4 rounded-3xl border border-border bg-card text-card-foreground p-4 transition-all duration-300">
                     <header className="relative flex items-center justify-between gap-2">
-                        <Tooltip side="top" sideOffset={10} align="center">
-                            <TooltipTrigger asChild>
-                                <h3 className="text-lg font-bold truncate min-w-0">{channel.name}</h3>
-                            </TooltipTrigger>
-                            <TooltipContent key={channel.name}>{channel.name}</TooltipContent>
-                        </Tooltip>
-
-                        <div className="flex items-center gap-2 shrink-0">
-                            {statusLabel && (
-                                <Tooltip side="top" sideOffset={10} align="center">
-                                    <TooltipTrigger asChild>
-                                        <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
-                                            {statusLabel}
-                                        </Badge>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                        {channel.auto_disabled && channel.disabled_reason ? channel.disabled_reason : statusLabel}
-                                    </TooltipContent>
-                                </Tooltip>
-                            )}
-                            <Switch
-                                checked={channel.enabled}
-                                onCheckedChange={handleEnableChange}
-                                disabled={enableChannel.isPending}
-                                onClick={(e) => e.stopPropagation()}
-                            />
+                        <div className="flex items-center gap-2 min-w-0">
+                            <Tooltip side="top" sideOffset={10} align="center">
+                                <TooltipTrigger asChild>
+                                    <h3 className="text-lg font-bold truncate min-w-0">{channel.name}</h3>
+                                </TooltipTrigger>
+                                <TooltipContent key={channel.name}>{channel.name}</TooltipContent>
+                            </Tooltip>
+                            {statusTagBadge}
                         </div>
+                        <Switch
+                            checked={channel.enabled}
+                            onCheckedChange={handleEnableChange}
+                            disabled={enableChannel.isPending}
+                            onClick={(e) => e.stopPropagation()}
+                        />
                     </header>
 
                     {isListLayout ? (

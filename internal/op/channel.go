@@ -506,3 +506,167 @@ func channelRefreshCacheByID(id int, ctx context.Context) error {
 	}
 	return nil
 }
+
+// ChannelCheckDuplicate checks whether any existing channel (excluding excludeID)
+// already uses the same (base_url, api_key) combination. Returns an error describing
+// the duplicate if found, nil otherwise.
+func ChannelCheckDuplicate(baseUrls []model.BaseUrl, keys []string, excludeID int) error {
+	if len(baseUrls) == 0 || len(keys) == 0 {
+		return nil
+	}
+
+	// Build a set of normalized URLs being added.
+	newURLs := make(map[string]struct{}, len(baseUrls))
+	for _, bu := range baseUrls {
+		norm := model.NormalizeBaseURL(bu.URL)
+		if norm != "" {
+			newURLs[norm] = struct{}{}
+		}
+	}
+
+	// Build a set of keys being added.
+	newKeys := make(map[string]struct{}, len(keys))
+	for _, k := range keys {
+		trimmed := strings.TrimSpace(k)
+		if trimmed != "" {
+			newKeys[trimmed] = struct{}{}
+		}
+	}
+
+	for _, ch := range channelCache.GetAll() {
+		if ch.ID == excludeID {
+			continue
+		}
+		for _, existURL := range ch.BaseUrls {
+			norm := model.NormalizeBaseURL(existURL.URL)
+			if _, urlMatch := newURLs[norm]; !urlMatch {
+				continue
+			}
+			for _, existKey := range ch.Keys {
+				keyVal := strings.TrimSpace(existKey.ChannelKey)
+				if _, keyMatch := newKeys[keyVal]; keyMatch {
+					return fmt.Errorf("duplicate: channel %q (id=%d) already uses the same API endpoint and key", ch.Name, ch.ID)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// ChannelSetStatusTag updates a channel's status tag in both DB and cache.
+func ChannelSetStatusTag(id int, tag string, ctx context.Context) error {
+	ch, ok := channelCache.Get(id)
+	if !ok {
+		return fmt.Errorf("channel not found")
+	}
+	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).Where("id = ?", id).Update("status_tag", tag).Error; err != nil {
+		return err
+	}
+	ch.StatusTag = tag
+	channelCache.Set(id, ch)
+	return nil
+}
+
+// ChannelSetAutoDisabled disables a channel and marks it as auto-disabled.
+func ChannelSetAutoDisabled(id int, ctx context.Context) error {
+	ch, ok := channelCache.Get(id)
+	if !ok {
+		return fmt.Errorf("channel not found")
+	}
+	now := time.Now().Unix()
+	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"enabled":          false,
+			"status_tag":       model.StatusTagAutoDisabled,
+			"auto_disabled_at": now,
+		}).Error; err != nil {
+		return err
+	}
+	ch.Enabled = false
+	ch.StatusTag = model.StatusTagAutoDisabled
+	ch.AutoDisabledAt = &now
+	channelCache.Set(id, ch)
+	return nil
+}
+
+// ChannelClearAutoDisabled re-enables an auto-disabled channel and clears its tags.
+func ChannelClearAutoDisabled(id int, ctx context.Context) error {
+	ch, ok := channelCache.Get(id)
+	if !ok {
+		return fmt.Errorf("channel not found")
+	}
+	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"enabled":          true,
+			"status_tag":       model.StatusTagNone,
+			"auto_disabled_at": nil,
+		}).Error; err != nil {
+		return err
+	}
+	ch.Enabled = true
+	ch.StatusTag = model.StatusTagNone
+	ch.AutoDisabledAt = nil
+	channelCache.Set(id, ch)
+
+	// Also re-enable all keys and clear their status tags.
+	keys := make([]model.ChannelKey, len(ch.Keys))
+	copy(keys, ch.Keys)
+	for i := range keys {
+		keys[i].Enabled = true
+		keys[i].StatusTag = model.StatusTagNone
+		channelKeyCache.Set(keys[i].ID, keys[i])
+		channelKeyCacheNeedUpdateLock.Lock()
+		channelKeyCacheNeedUpdate[keys[i].ID] = struct{}{}
+		channelKeyCacheNeedUpdateLock.Unlock()
+	}
+	ch.Keys = keys
+	channelCache.Set(id, ch)
+	return nil
+}
+
+// ChannelKeySetStatusTag updates a key's status tag in cache and marks it for DB sync.
+func ChannelKeySetStatusTag(keyID int, tag string, disable bool) error {
+	k, ok := channelKeyCache.Get(keyID)
+	if !ok {
+		return fmt.Errorf("channel key not found")
+	}
+	k.StatusTag = tag
+	if disable {
+		k.Enabled = false
+	}
+
+	// Update in channel cache too.
+	ch, chOK := channelCache.Get(k.ChannelID)
+	if chOK {
+		keys := make([]model.ChannelKey, len(ch.Keys))
+		copy(keys, ch.Keys)
+		for i := range keys {
+			if keys[i].ID == keyID {
+				keys[i] = k
+				break
+			}
+		}
+		ch.Keys = keys
+		channelCache.Set(k.ChannelID, ch)
+	}
+
+	channelKeyCache.Set(keyID, k)
+	channelKeyCacheNeedUpdateLock.Lock()
+	channelKeyCacheNeedUpdate[keyID] = struct{}{}
+	channelKeyCacheNeedUpdateLock.Unlock()
+	return nil
+}
+
+// ChannelAllKeysDisabled returns true if every key in the channel is disabled.
+func ChannelAllKeysDisabled(channelID int) bool {
+	ch, ok := channelCache.Get(channelID)
+	if !ok || len(ch.Keys) == 0 {
+		return true
+	}
+	for _, k := range ch.Keys {
+		if k.Enabled {
+			return false
+		}
+	}
+	return true
+}
