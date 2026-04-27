@@ -69,6 +69,8 @@ export type Channel = {
     stats: StatsChannel;
     status_tag: string;
     auto_disabled_at?: number | null;
+    auto_disable_threshold?: number | null;
+    auto_disable_retry_hours?: number | null;
 };
 
 // Internal type: backend may return null for slice fields; normalize to [] in select()
@@ -96,6 +98,8 @@ export type CreateChannelRequest = {
     channel_proxy?: string | null;
     param_override?: string | null;
     match_regex?: string | null;
+    auto_disable_threshold?: number | null;
+    auto_disable_retry_hours?: number | null;
 };
 
 /**
@@ -116,6 +120,8 @@ export type UpdateChannelRequest = {
     channel_proxy?: string | null;
     param_override?: string | null;
     match_regex?: string | null;
+    auto_disable_threshold?: number | null;
+    auto_disable_retry_hours?: number | null;
     // keys diff
     keys_to_add?: Array<Pick<ChannelKey, 'enabled' | 'channel_key' | 'remark'>>;
     keys_to_update?: Array<{ id: number; enabled?: boolean; channel_key?: string; remark?: string }>;
@@ -395,6 +401,49 @@ export function useTestModel() {
         },
         onError: (error) => {
             logger.error('Model test failed:', error);
+        },
+    });
+}
+
+/**
+ * Duplicate check result
+ */
+export type DuplicateInfo = {
+    channel_id: number;
+    channel_name: string;
+    match_type: 'endpoint_and_key' | 'endpoint' | 'key';
+};
+
+/**
+ * Check for duplicate channels (client-side pre-submit validation)
+ */
+export function useCheckDuplicate() {
+    return useMutation({
+        mutationFn: async (data: { base_urls: BaseUrl[]; keys: string[]; exclude_id: number }) => {
+            return apiClient.post<DuplicateInfo[] | null>('/api/v1/channel/check-duplicate', data);
+        },
+    });
+}
+
+/**
+ * Model test result from test-all-models endpoint
+ */
+export type ModelTestResult = {
+    model: string;
+    available: boolean;
+    error?: string;
+};
+
+/**
+ * Test all models on a channel
+ */
+export function useTestAllModels() {
+    return useMutation({
+        mutationFn: async (channelId: number) => {
+            return apiClient.post<ModelTestResult[]>('/api/v1/channel/test-all-models', { channel_id: channelId });
+        },
+        onError: (error) => {
+            logger.error('Test all models failed:', error);
         },
     });
 }

@@ -27,6 +27,8 @@ export function CreateDialogContent() {
         enabled: true,
         proxy: false,
         match_regex: '',
+        auto_disable_threshold: '',
+        auto_disable_retry_hours: '',
     });
     const t = useTranslations('channel.create');
 
@@ -61,6 +63,8 @@ export function CreateDialogContent() {
                 channel_proxy: channelProxy,
                 param_override: paramOverride,
                 match_regex: formData.match_regex.trim(),
+                auto_disable_threshold: formData.auto_disable_threshold ? Number(formData.auto_disable_threshold) : null,
+                auto_disable_retry_hours: formData.auto_disable_retry_hours ? Number(formData.auto_disable_retry_hours) : null,
             },
             {
                 onSuccess: () => {
@@ -79,6 +83,8 @@ export function CreateDialogContent() {
                         enabled: true,
                         proxy: false,
                         match_regex: '',
+                        auto_disable_threshold: '',
+                        auto_disable_retry_hours: '',
                     });
                     setIsOpen(false);
                 }
