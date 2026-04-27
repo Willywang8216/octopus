@@ -32,11 +32,11 @@ func init() {
 		AddRoute(
 			router.NewRoute("/delete/:id", http.MethodDelete).
 				Handle(deleteGroup),
+		).
+		AddRoute(
+			router.NewRoute("/create-agentic", http.MethodPost).
+				Handle(createAgenticGroups),
 		)
-	// AddRoute(
-	// 	router.NewRoute("/auto-add-item", http.MethodPost).
-	// 		Handle(autoAddGroupItem),
-	// )
 }
 
 func getGroupList(c *gin.Context) {
@@ -103,22 +103,35 @@ func deleteGroup(c *gin.Context) {
 	resp.Success(c, "group deleted successfully")
 }
 
-// func autoAddGroupItem(c *gin.Context) {
-// 	var req struct {
-// 		ID int `json:"id"`
-// 	}
-// 	if err := c.ShouldBindJSON(&req); err != nil {
-// 		resp.Error(c, http.StatusBadRequest, err.Error())
-// 		return
-// 	}
-// 	if req.ID <= 0 {
-// 		resp.Error(c, http.StatusBadRequest, "invalid id")
-// 		return
-// 	}
-// 	err := worker.AutoAddGroupItem(req.ID, c.Request.Context())
-// 	if err != nil {
-// 		resp.Error(c, http.StatusInternalServerError, err.Error())
-// 		return
-// 	}
-// 	resp.Success(c, nil)
-// }
+// createAgenticGroups creates pre-configured groups for agentic coding tools
+// (Claude Code and OpenAI Codex). These groups use failover mode and regex
+// patterns that match both official model names and custom agentic models.
+func createAgenticGroups(c *gin.Context) {
+	agenticGroups := []model.Group{
+		{
+			Name:              "claude-code",
+			Mode:              model.GroupModeFailover,
+			MatchRegex:        `^(claude-|agentic-).*`,
+			FirstTokenTimeOut: 60,
+			SessionKeepTime:   300,
+		},
+		{
+			Name:              "codex",
+			Mode:              model.GroupModeFailover,
+			MatchRegex:        `^(gpt-|o[1-9]|codex-|agentic-).*`,
+			FirstTokenTimeOut: 60,
+			SessionKeepTime:   300,
+		},
+	}
+
+	created := make([]model.Group, 0, len(agenticGroups))
+	for _, g := range agenticGroups {
+		if err := op.GroupCreate(&g, c.Request.Context()); err != nil {
+			// Skip if already exists (unique name constraint).
+			continue
+		}
+		created = append(created, g)
+	}
+
+	resp.Success(c, created)
+}

@@ -1,9 +1,18 @@
 package model
 
 import (
+	"strings"
 	"time"
 
 	"github.com/bestruirui/octopus/internal/transformer/outbound"
+)
+
+// StatusTag constants for channels and keys.
+const (
+	StatusTagNone              = ""
+	StatusTagAutoDisabled      = "auto_disabled"
+	StatusTagInsufficientFunds = "insufficient_funds"
+	StatusTagQuotaExceeded     = "quota_exceeded"
 )
 
 type AutoGroupType int
@@ -30,8 +39,10 @@ type Channel struct {
 	CustomHeader  []CustomHeader        `json:"custom_header" gorm:"serializer:json"`
 	ParamOverride *string               `json:"param_override"`
 	ChannelProxy  *string               `json:"channel_proxy"`
-	Stats         *StatsChannel         `json:"stats,omitempty" gorm:"foreignKey:ChannelID"`
-	MatchRegex    *string               `json:"match_regex"`
+	Stats          *StatsChannel         `json:"stats,omitempty" gorm:"foreignKey:ChannelID"`
+	MatchRegex     *string               `json:"match_regex"`
+	StatusTag      string                `json:"status_tag" gorm:"default:''"`
+	AutoDisabledAt *int64                `json:"auto_disabled_at"`
 }
 
 type BaseUrl struct {
@@ -53,6 +64,15 @@ type ChannelKey struct {
 	LastUseTimeStamp int64   `json:"last_use_time_stamp"`
 	TotalCost        float64 `json:"total_cost"`
 	Remark           string  `json:"remark"`
+	StatusTag        string  `json:"status_tag" gorm:"default:''"`
+}
+
+// NormalizeBaseURL returns a canonical form of a base URL for comparison.
+func NormalizeBaseURL(u string) string {
+	u = strings.TrimSpace(u)
+	u = strings.TrimRight(u, "/")
+	u = strings.ToLower(u)
+	return u
 }
 
 // ChannelUpdateRequest 渠道更新请求 - 仅包含变更的数据

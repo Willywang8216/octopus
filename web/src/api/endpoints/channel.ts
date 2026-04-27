@@ -44,6 +44,7 @@ export type ChannelKey = {
     last_use_time_stamp: number;
     total_cost: number;
     remark: string;
+    status_tag: string;
 };
 
 /**
@@ -66,6 +67,8 @@ export type Channel = {
     channel_proxy?: string | null;
     match_regex?: string | null;
     stats: StatsChannel;
+    status_tag: string;
+    auto_disabled_at?: number | null;
 };
 
 // Internal type: backend may return null for slice fields; normalize to [] in select()
@@ -360,6 +363,38 @@ export function useSyncChannel() {
         },
         onError: (error) => {
             logger.error('渠道同步失败:', error);
+        },
+    });
+}
+
+/**
+ * Check model availability for a channel (or all channels if id=0)
+ */
+export function useCheckModels() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (channelId: number) => {
+            return apiClient.post<null>('/api/v1/channel/check-models', { id: channelId });
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['channels', 'list'] });
+        },
+        onError: (error) => {
+            logger.error('Model check failed:', error);
+        },
+    });
+}
+
+/**
+ * Test a specific model on a specific channel
+ */
+export function useTestModel() {
+    return useMutation({
+        mutationFn: async (data: { channel_id: number; model: string }) => {
+            return apiClient.post<{ available: boolean; error?: string }>('/api/v1/channel/test-model', data);
+        },
+        onError: (error) => {
+            logger.error('Model test failed:', error);
         },
     });
 }

@@ -22,6 +22,47 @@ import (
 	"github.com/tmaxmax/go-sse"
 )
 
+// detectFundingIssue checks whether a failure indicates an upstream funding or
+// quota problem. Returns the appropriate status tag, or empty string if not
+// a funding issue.
+func detectFundingIssue(statusCode int, errMsg string) string {
+	lower := strings.ToLower(errMsg)
+
+	// HTTP 402 Payment Required
+	if statusCode == 402 {
+		return dbmodel.StatusTagInsufficientFunds
+	}
+
+	// 500/502 with upstream closed patterns (provider has no money)
+	if statusCode == 500 || statusCode == 502 {
+		if strings.Contains(lower, "upstream stream closed") ||
+			strings.Contains(lower, "upstream closed") ||
+			strings.Contains(lower, "empty_stream") {
+			return dbmodel.StatusTagInsufficientFunds
+		}
+	}
+
+	// 429 with quota/billing keywords
+	if statusCode == 429 {
+		for _, kw := range []string{"quota", "billing", "credit", "insufficient", "budget", "limit"} {
+			if strings.Contains(lower, kw) {
+				return dbmodel.StatusTagQuotaExceeded
+			}
+		}
+	}
+
+	// 403 with quota/billing keywords
+	if statusCode == 403 {
+		for _, kw := range []string{"quota", "billing", "budget", "insufficient", "credit"} {
+			if strings.Contains(lower, kw) {
+				return dbmodel.StatusTagQuotaExceeded
+			}
+		}
+	}
+
+	return ""
+}
+
 // Handler 处理入站请求并转发到上游服务
 func Handler(inboundType inbound.InboundType, c *gin.Context) {
 	// 解析请求
@@ -201,6 +242,21 @@ func (ra *relayAttempt) attempt() attemptResult {
 
 	// 熔断器：记录失败
 	balancer.RecordFailure(ra.channel.ID, ra.usedKey.ID, ra.internalRequest.Model)
+
+	// Detect funding/quota issues and tag the key accordingly.
+	if tag := detectFundingIssue(statusCode, fwdErr.Error()); tag != "" {
+		log.Warnf("funding issue detected for channel %s key %d: %s (status=%d)",
+			ra.channel.Name, ra.usedKey.ID, tag, statusCode)
+		_ = op.ChannelKeySetStatusTag(ra.usedKey.ID, tag, true)
+
+		// If all keys are now disabled, auto-disable the entire channel.
+		if op.ChannelAllKeysDisabled(ra.channel.ID) {
+			bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			_ = op.ChannelSetAutoDisabled(ra.channel.ID, bgCtx)
+			log.Warnf("all keys exhausted for channel %s — channel auto-disabled", ra.channel.Name)
+		}
+	}
 
 	written := ra.c.Writer.Written()
 	if written {

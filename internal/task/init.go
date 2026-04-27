@@ -11,12 +11,14 @@ import (
 )
 
 const (
-	TaskPriceUpdate  = "price_update"
-	TaskStatsSave    = "stats_save"
-	TaskRelayLogSave = "relay_log_save"
-	TaskSyncLLM      = "sync_llm"
-	TaskCleanLLM     = "clean_llm"
-	TaskBaseUrlDelay = "base_url_delay"
+	TaskPriceUpdate      = "price_update"
+	TaskStatsSave        = "stats_save"
+	TaskRelayLogSave     = "relay_log_save"
+	TaskSyncLLM          = "sync_llm"
+	TaskCleanLLM         = "clean_llm"
+	TaskBaseUrlDelay     = "base_url_delay"
+	TaskAutoDisableRetry = "auto_disable_retry"
+	TaskModelCheck       = "model_check"
 )
 
 func Init() {
@@ -59,4 +61,15 @@ func Init() {
 			log.Warnf("relay log save db task failed: %v", err)
 		}
 	})
+
+	// 注册自动禁用重试任务（每小时检查一次）
+	Register(TaskAutoDisableRetry, 1*time.Hour, false, AutoDisableRetryTask)
+
+	// 注册模型可用性检查任务
+	modelCheckIntervalHours, err := op.SettingGetInt(model.SettingKeyModelCheckInterval)
+	if err != nil || modelCheckIntervalHours <= 0 {
+		modelCheckIntervalHours = 24
+	}
+	modelCheckInterval := time.Duration(modelCheckIntervalHours) * time.Hour
+	Register(TaskModelCheck, modelCheckInterval, false, ModelAvailabilityCheckTask)
 }

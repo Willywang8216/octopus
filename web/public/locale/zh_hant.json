@@ -70,7 +70,8 @@
                 "channel": {
                     "all": "全部供應源",
                     "enabled": "僅啟用",
-                    "disabled": "僅停用"
+                    "disabled": "僅停用",
+                    "fundingIssue": "資金問題"
                 },
                 "group": {
                     "all": "全部分組",
@@ -388,7 +389,13 @@
             "failover": "故障轉移",
             "weighted": "加權分配"
         },
-        "empty": "暫無分組，點擊左上角按鈕建立"
+        "empty": "暫無分組，點擊左上角按鈕建立",
+        "createAgentic": {
+            "button": "建立代碼程式分組",
+            "creating": "建立中...",
+            "success": "代碼程式分組建立成功",
+            "failed": "建立代碼程式分組失敗"
+        }
     },
     "model": {
         "create": {
@@ -449,6 +456,11 @@
         }
     },
     "channel": {
+        "statusTag": {
+            "autoDisabled": "自動停用",
+            "insufficientFunds": "餘額不足",
+            "quotaExceeded": "配額用盡"
+        },
         "card": {
             "requestCount": "請求次數",
             "totalCost": "總成本",
@@ -490,7 +502,14 @@
                 "saving": "儲存中...",
                 "delete": "刪除",
                 "confirmDelete": "確認刪除",
-                "deleting": "刪除中..."
+                "deleting": "刪除中...",
+                "checkModels": "檢查模型",
+                "checkingModels": "檢查中...",
+                "checkModelsSuccess": "已觸發模型檢查",
+                "testModel": "測試",
+                "testingModel": "測試中...",
+                "modelAvailable": "模型可用",
+                "modelUnavailable": "模型不可用"
             }
         },
         "create": {
@@ -541,7 +560,28 @@
             "autoGroupRegex": "正規比對",
             "matchRegex": "匹配正規",
             "matchRegexPlaceholder": "可選：用於匹配請求模型名稱的正規表示式",
-            "remark": "備註"
+            "remark": "備註",
+            "duplicateError": "已存在使用相同 API 端點和金鑰的供應源"
         }
+    },
+    "autoDisable": {
+        "title": "自動停用",
+        "threshold": {
+            "label": "失敗閾值（連續失敗次數）",
+            "placeholder": "輸入閾值"
+        },
+        "retryHours": {
+            "label": "重試間隔（小時）",
+            "placeholder": "輸入小時數"
+        },
+        "hint": "金鑰在連續失敗後自動停用。當供應源所有金鑰都被停用時，供應源自動停用，並在設定的時間後重試"
+    },
+    "modelCheck": {
+        "title": "模型可用性",
+        "interval": {
+            "label": "檢查間隔（小時）",
+            "placeholder": "輸入小時數"
+        },
+        "hint": "定期檢查自動同步供應源的模型列表是否最新"
     }
 }

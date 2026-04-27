@@ -1,14 +1,19 @@
 package helper
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
 	"github.com/bestruirui/octopus/internal/client"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
+	"github.com/bestruirui/octopus/internal/transformer/outbound"
 	"github.com/bestruirui/octopus/internal/utils/log"
 	"github.com/bestruirui/octopus/internal/utils/xstrings"
 	"github.com/dlclark/regexp2"
@@ -136,4 +141,78 @@ func ChannelAutoGroup(channel *model.Channel, ctx context.Context) {
 			}
 		}
 	}
+}
+
+// TestModelAvailability tests whether a specific model is actually usable on
+// a channel by sending a meaningful (non-suspicious) chat completion request.
+// Returns true if the model responds successfully, false otherwise.
+func TestModelAvailability(ctx context.Context, channel model.Channel, modelName string) (bool, error) {
+	httpClient, err := ChannelHttpClient(&channel)
+	if err != nil {
+		return false, err
+	}
+
+	baseURL := channel.GetBaseUrl()
+	if baseURL == "" {
+		return false, errors.New("no base URL available")
+	}
+	key := channel.GetChannelKey()
+	if key.ChannelKey == "" {
+		return false, errors.New("no API key available")
+	}
+
+	// Use a meaningful, benign prompt that won't trigger abuse detection.
+	payload := map[string]interface{}{
+		"model": modelName,
+		"messages": []map[string]string{
+			{"role": "user", "content": "What is the result of 15 multiplied by 7? Reply with only the number."},
+		},
+		"max_tokens": 10,
+		"stream":     false,
+	}
+
+	body, _ := json.Marshal(payload)
+
+	var endpoint string
+	switch channel.Type {
+	case outbound.OutboundTypeAnthropic:
+		endpoint = baseURL + "/messages"
+	default:
+		endpoint = baseURL + "/chat/completions"
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return false, err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	switch channel.Type {
+	case outbound.OutboundTypeAnthropic:
+		req.Header.Set("X-Api-Key", key.ChannelKey)
+		req.Header.Set("Anthropic-Version", "2023-06-01")
+	case outbound.OutboundTypeGemini:
+		req.Header.Set("X-Goog-Api-Key", key.ChannelKey)
+	default:
+		req.Header.Set("Authorization", "Bearer "+key.ChannelKey)
+	}
+
+	for _, h := range channel.CustomHeader {
+		if h.HeaderKey != "" {
+			req.Header.Set(h.HeaderKey, h.HeaderValue)
+		}
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	io.Copy(io.Discard, resp.Body)
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return true, nil
+	}
+	return false, fmt.Errorf("model %s returned status %d", modelName, resp.StatusCode)
 }

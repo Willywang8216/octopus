@@ -70,7 +70,8 @@
                 "channel": {
                     "all": "全部渠道",
                     "enabled": "仅启用",
-                    "disabled": "仅禁用"
+                    "disabled": "仅禁用",
+                    "fundingIssue": "资金问题"
                 },
                 "group": {
                     "all": "全部分组",
@@ -388,7 +389,13 @@
             "failover": "故障转移",
             "weighted": "加权分配"
         },
-        "empty": "暂无分组，点击左上角按钮创建"
+        "empty": "暂无分组，点击左上角按钮创建",
+        "createAgentic": {
+            "button": "创建代码编程分组",
+            "creating": "创建中...",
+            "success": "代码编程分组创建成功",
+            "failed": "创建代码编程分组失败"
+        }
     },
     "model": {
         "create": {
@@ -449,6 +456,11 @@
         }
     },
     "channel": {
+        "statusTag": {
+            "autoDisabled": "自动禁用",
+            "insufficientFunds": "余额不足",
+            "quotaExceeded": "配额用尽"
+        },
         "card": {
             "requestCount": "请求次数",
             "totalCost": "总成本",
@@ -490,7 +502,14 @@
                 "saving": "保存中...",
                 "delete": "删除",
                 "confirmDelete": "确认删除",
-                "deleting": "删除中..."
+                "deleting": "删除中...",
+                "checkModels": "检查模型",
+                "checkingModels": "检查中...",
+                "checkModelsSuccess": "已触发模型检查",
+                "testModel": "测试",
+                "testingModel": "测试中...",
+                "modelAvailable": "模型可用",
+                "modelUnavailable": "模型不可用"
             }
         },
         "create": {
@@ -541,7 +560,28 @@
             "autoGroupRegex": "正则匹配",
             "matchRegex": "匹配正则",
             "matchRegexPlaceholder": "可选：用于匹配请求模型名称的正则表达式",
-            "remark": "备注"
+            "remark": "备注",
+            "duplicateError": "已存在使用相同 API 端点和密钥的渠道"
         }
+    },
+    "autoDisable": {
+        "title": "自动禁用",
+        "threshold": {
+            "label": "失败阈值（连续失败次数）",
+            "placeholder": "输入阈值"
+        },
+        "retryHours": {
+            "label": "重试间隔（小时）",
+            "placeholder": "输入小时数"
+        },
+        "hint": "密钥在连续失败后自动禁用。当渠道所有密钥都被禁用时，渠道自动禁用，并在配置的时间后重试"
+    },
+    "modelCheck": {
+        "title": "模型可用性",
+        "interval": {
+            "label": "检查间隔（小时）",
+            "placeholder": "输入小时数"
+        },
+        "hint": "定期检查自动同步渠道的模型列表是否最新"
     }
 }

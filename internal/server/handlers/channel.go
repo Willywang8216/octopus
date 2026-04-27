@@ -14,6 +14,7 @@ import (
 	"github.com/bestruirui/octopus/internal/server/resp"
 	"github.com/bestruirui/octopus/internal/server/router"
 	"github.com/bestruirui/octopus/internal/task"
+	"github.com/bestruirui/octopus/internal/utils/log"
 	"github.com/gin-gonic/gin"
 )
 
@@ -55,6 +56,17 @@ func init() {
 			router.NewRoute("/last-sync-time", http.MethodGet).
 				Handle(getLastSyncTime),
 		)
+	router.NewGroupRouter("/api/v1/channel").
+		Use(middleware.Auth()).
+		Use(middleware.RequireJSON()).
+		AddRoute(
+			router.NewRoute("/check-models", http.MethodPost).
+				Handle(checkModels),
+		).
+		AddRoute(
+			router.NewRoute("/test-model", http.MethodPost).
+				Handle(testModel),
+		)
 }
 
 func listChannel(c *gin.Context) {
@@ -74,6 +86,15 @@ func createChannel(c *gin.Context) {
 	var channel model.Channel
 	if err := c.ShouldBindJSON(&channel); err != nil {
 		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
+		return
+	}
+	// Check for duplicate API endpoint + key combinations.
+	keyStrs := make([]string, 0, len(channel.Keys))
+	for _, k := range channel.Keys {
+		keyStrs = append(keyStrs, k.ChannelKey)
+	}
+	if err := op.ChannelCheckDuplicate(channel.BaseUrls, keyStrs, 0); err != nil {
+		resp.Error(c, http.StatusConflict, err.Error())
 		return
 	}
 	if err := op.ChannelCreate(&channel, c.Request.Context()); err != nil {
@@ -99,6 +120,25 @@ func updateChannel(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
 		return
+	}
+	// Check for duplicate API endpoint + key combinations when adding new keys.
+	if len(req.KeysToAdd) > 0 {
+		// Use the channel's current base URLs or the updated ones.
+		existing, _ := op.ChannelGet(req.ID, c.Request.Context())
+		var baseUrls []model.BaseUrl
+		if req.BaseUrls != nil {
+			baseUrls = *req.BaseUrls
+		} else if existing != nil {
+			baseUrls = existing.BaseUrls
+		}
+		newKeyStrs := make([]string, 0, len(req.KeysToAdd))
+		for _, k := range req.KeysToAdd {
+			newKeyStrs = append(newKeyStrs, k.ChannelKey)
+		}
+		if err := op.ChannelCheckDuplicate(baseUrls, newKeyStrs, req.ID); err != nil {
+			resp.Error(c, http.StatusConflict, err.Error())
+			return
+		}
 	}
 	channel, err := op.ChannelUpdate(&req, c.Request.Context())
 	if err != nil {
@@ -170,4 +210,51 @@ func syncChannel(c *gin.Context) {
 func getLastSyncTime(c *gin.Context) {
 	time := task.GetLastSyncModelsTime()
 	resp.Success(c, time)
+}
+
+func checkModels(c *gin.Context) {
+	var request struct {
+		ID int `json:"id"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
+		return
+	}
+
+	if request.ID > 0 {
+		// Check a specific channel.
+		go func() {
+			if err := task.CheckModelsForChannel(request.ID); err != nil {
+				log.Warnf("check-models for channel %d failed: %v", request.ID, err)
+			}
+		}()
+	} else {
+		// Check all channels.
+		go task.ModelAvailabilityCheckTask()
+	}
+	resp.Success(c, nil)
+}
+
+func testModel(c *gin.Context) {
+	var request struct {
+		ChannelID int    `json:"channel_id" binding:"required"`
+		Model     string `json:"model" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
+		return
+	}
+
+	channel, err := op.ChannelGet(request.ChannelID, c.Request.Context())
+	if err != nil {
+		resp.Error(c, http.StatusNotFound, "channel not found")
+		return
+	}
+
+	ok, err := helper.TestModelAvailability(c.Request.Context(), *channel, request.Model)
+	if err != nil {
+		resp.Success(c, map[string]interface{}{"available": false, "error": err.Error()})
+		return
+	}
+	resp.Success(c, map[string]interface{}{"available": ok})
 }
