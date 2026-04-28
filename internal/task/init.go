@@ -7,6 +7,7 @@ import (
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/price"
+	"github.com/bestruirui/octopus/internal/relay/balancer"
 	"github.com/bestruirui/octopus/internal/utils/log"
 )
 
@@ -17,6 +18,14 @@ const (
 	TaskSyncLLM      = "sync_llm"
 	TaskCleanLLM     = "clean_llm"
 	TaskBaseUrlDelay = "base_url_delay"
+	TaskBalancerGC   = "balancer_gc"
+)
+
+// 平衡器内存维护：每 5 分钟清理一次过期会话和空闲熔断器条目。
+const (
+	balancerGCInterval     = 5 * time.Minute
+	stickySessionMaxAge    = 24 * time.Hour
+	circuitBreakerIdleTime = 24 * time.Hour
 )
 
 func Init() {
@@ -57,6 +66,16 @@ func Init() {
 	Register(TaskRelayLogSave, 10*time.Minute, false, func() {
 		if err := op.RelayLogSaveDBTask(context.Background()); err != nil {
 			log.Warnf("relay log save db task failed: %v", err)
+		}
+	})
+
+	// 注册平衡器内存维护任务，回收过期的粘性会话和空闲熔断器条目，
+	// 防止 sync.Map 在长时间运行的实例中无限增长。
+	Register(TaskBalancerGC, balancerGCInterval, false, func() {
+		sessions := balancer.GCSticky(stickySessionMaxAge)
+		circuits := balancer.GCCircuit(circuitBreakerIdleTime)
+		if sessions > 0 || circuits > 0 {
+			log.Debugf("balancer GC removed %d sticky sessions, %d circuit entries", sessions, circuits)
 		}
 	})
 }

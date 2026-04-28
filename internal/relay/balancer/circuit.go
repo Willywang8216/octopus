@@ -175,3 +175,30 @@ func RecordFailure(channelID, keyID int, modelName string) {
 		// 但为安全起见仍更新失败时间
 	}
 }
+
+// GCCircuit 清理长时间空闲的熔断器条目（仅当条目处于 Closed 且无失败计数时）。
+// idleAfter 表示自上次失败以来超过该时长且当前 Closed/无失败的条目可被回收。
+// 由后台定时任务调用。
+func GCCircuit(idleAfter time.Duration) int {
+	cutoff := time.Now().Add(-idleAfter)
+	removed := 0
+	globalBreaker.Range(func(k, v any) bool {
+		entry, ok := v.(*circuitEntry)
+		if !ok || entry == nil {
+			globalBreaker.Delete(k)
+			removed++
+			return true
+		}
+		entry.mu.Lock()
+		evict := entry.State == StateClosed &&
+			entry.ConsecutiveFailures == 0 &&
+			(entry.LastFailureTime.IsZero() || entry.LastFailureTime.Before(cutoff))
+		entry.mu.Unlock()
+		if evict {
+			globalBreaker.Delete(k)
+			removed++
+		}
+		return true
+	})
+	return removed
+}
