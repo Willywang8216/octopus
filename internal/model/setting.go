@@ -19,9 +19,7 @@ const (
 	SettingKeyCircuitBreakerThreshold   SettingKey = "circuit_breaker_threshold"    // 熔断触发阈值（连续失败次数）
 	SettingKeyCircuitBreakerCooldown    SettingKey = "circuit_breaker_cooldown"     // 熔断基础冷却时间（秒）
 	SettingKeyCircuitBreakerMaxCooldown SettingKey = "circuit_breaker_max_cooldown" // 熔断最大冷却时间（秒），指数退避上限
-	SettingKeyAutoDisableThreshold      SettingKey = "auto_disable_threshold"       // 连续失败多少次后自动禁用 key
-	SettingKeyAutoDisableRetryHours     SettingKey = "auto_disable_retry_hours"     // 自动禁用后多少小时重试
-	SettingKeyModelCheckInterval        SettingKey = "model_check_interval"         // 模型可用性检查间隔（小时）
+	SettingKeyAutoDisableRetryDays      SettingKey = "auto_disable_retry_days"      // 渠道自动禁用后的重试间隔（天）
 )
 
 const (
@@ -93,9 +91,7 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyCircuitBreakerThreshold, Value: "5"},     // 默认连续失败5次触发熔断
 		{Key: SettingKeyCircuitBreakerCooldown, Value: "60"},     // 默认基础冷却60秒
 		{Key: SettingKeyCircuitBreakerMaxCooldown, Value: "600"}, // 默认最大冷却600秒（10分钟）
-		{Key: SettingKeyAutoDisableThreshold, Value: "10"},       // 默认连续失败10次自动禁用
-		{Key: SettingKeyAutoDisableRetryHours, Value: "24"},      // 默认24小时后重试
-		{Key: SettingKeyModelCheckInterval, Value: "24"},         // 默认24小时检查一次模型可用性
+		{Key: SettingKeyAutoDisableRetryDays, Value: "1"},        // 默认自动禁用后1天重试
 	}
 }
 
@@ -103,7 +99,7 @@ func (s *Setting) Validate() error {
 	switch s.Key {
 	case SettingKeyModelInfoUpdateInterval, SettingKeySyncLLMInterval, SettingKeyRelayLogKeepPeriod,
 		SettingKeyCircuitBreakerThreshold, SettingKeyCircuitBreakerCooldown, SettingKeyCircuitBreakerMaxCooldown,
-		SettingKeyAutoDisableThreshold, SettingKeyAutoDisableRetryHours, SettingKeyModelCheckInterval:
+		SettingKeyAutoDisableRetryDays:
 		_, err := strconv.Atoi(s.Value)
 		if err != nil {
 			return fmt.Errorf("model info update interval must be an integer")

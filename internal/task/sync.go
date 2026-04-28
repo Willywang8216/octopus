@@ -32,10 +32,7 @@ func SyncModelsTask() {
 	totalNewModels := make([]string, 0, 128)
 	seenTotalNewModels := make(map[string]struct{}, 128)
 	for _, channel := range channels {
-		if !channel.AutoSync {
-			continue
-		}
-		fetchModels, err := helper.FetchModels(ctx, channel)
+		fetchModels, err := helper.FetchAvailableModels(ctx, channel)
 		if err != nil {
 			log.Warnf("failed to fetch models for channel %s: %v", channel.Name, err)
 			continue

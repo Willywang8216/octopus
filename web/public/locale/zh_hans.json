@@ -183,6 +183,10 @@
                 "label": "最大冷却时间（秒）",
                 "placeholder": "请输入最大冷却时间"
             },
+            "autoDisableRetryDays": {
+                "label": "自动禁用后重试间隔（天）",
+                "placeholder": "请输入天数"
+            },
             "hint": "当渠道连续失败达到阈值后触发熔断，冷却时间按指数退避增长，上限为最大冷却时间"
         },
         "saved": "已保存",
@@ -354,6 +358,15 @@
             "submit": "创建",
             "submitting": "创建中..."
         },
+        "preset": {
+            "title": "编码器预设",
+            "modelPlaceholder": "兼容模型，例如 agentic-coder",
+            "create": "创建 Claude Code 和 Codex 分组",
+            "creating": "创建中...",
+            "hint": "创建 anthropic-claude-code 和 openai-codex 分组，并指向你选择的兼容模型。",
+            "success": "编码器预设分组已创建",
+            "failed": "创建编码器预设分组失败"
+        },
         "card": {
             "empty": "暂无规则"
         },
@@ -464,10 +477,9 @@
         "card": {
             "requestCount": "请求次数",
             "totalCost": "总成本",
-            "status": {
-                "noMoney": "余额不足",
-                "badGateway": "网关错误",
-                "autoDisabled": "自动禁用"
+            "tag": {
+                "autoDisabled": "自动禁用",
+                "billingIssue": "余额/额度问题"
             },
             "toast": {
                 "enabled": "渠道已启用",

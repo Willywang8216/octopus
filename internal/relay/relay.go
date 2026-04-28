@@ -227,7 +227,7 @@ func (ra *relayAttempt) attempt() attemptResult {
 		// ====== 成功 ======
 		ra.collectResponse()
 		ra.usedKey.TotalCost += ra.metrics.Stats.InputCost + ra.metrics.Stats.OutputCost
-		op.ChannelKeyUpdate(ra.usedKey)
+		op.ChannelMarkKeySuccess(ra.usedKey)
 
 		span.End(dbmodel.AttemptSuccess, statusCode, "")
 
@@ -246,7 +246,11 @@ func (ra *relayAttempt) attempt() attemptResult {
 	}
 
 	// ====== 失败 ======
-	op.ChannelKeyUpdate(ra.usedKey)
+	billingIssue := isBillingIssue(statusCode, fwdErr)
+	op.ChannelMarkKeyFailure(ra.usedKey, statusCode, fwdErr, billingIssue)
+	if err := op.ChannelCheckAutoDisable(ra.channel.ID, billingIssue, ra.c.Request.Context()); err != nil {
+		log.Warnf("failed to check channel auto disable (channel=%d): %v", ra.channel.ID, err)
+	}
 	span.End(dbmodel.AttemptFailed, statusCode, fwdErr.Error())
 
 	// Channel 维度统计
@@ -278,10 +282,48 @@ func (ra *relayAttempt) attempt() attemptResult {
 		ra.collectResponse()
 	}
 	return attemptResult{
-		Success: false,
-		Written: written,
-		Err:     fmt.Errorf("channel %s failed: %v", ra.channel.Name, fwdErr),
+		Success:      false,
+		Written:      written,
+		BillingIssue: billingIssue,
+		Err:          fmt.Errorf("channel %s failed: %v", ra.channel.Name, fwdErr),
 	}
+}
+
+func isBillingIssue(statusCode int, err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	billingKeywords := []string{
+		"insufficient fund",
+		"insufficient_fund",
+		"insufficient funds",
+		"not enough quota",
+		"quota exceeded",
+		"billing",
+		"balance",
+		"credit",
+		"payment required",
+		"no money",
+		"余额不足",
+		"额度不足",
+		"配额不足",
+		"没钱",
+		"欠费",
+		"upstream stream closed before first payload",
+		"upstream closed before any payload",
+		"empty_stream",
+	}
+	for _, keyword := range billingKeywords {
+		if strings.Contains(msg, keyword) {
+			return true
+		}
+	}
+	if (statusCode == http.StatusInternalServerError || statusCode == http.StatusBadGateway) &&
+		(strings.Contains(msg, "closed before") || strings.Contains(msg, "empty_stream")) {
+		return true
+	}
+	return false
 }
 
 // parseRequest 解析并验证入站请求
@@ -342,8 +384,7 @@ func (ra *relayAttempt) forward() (int, error) {
 		if err != nil {
 			return response.StatusCode, fmt.Errorf("failed to read response body: %w", err)
 		}
-		ra.handleUpstreamFailure(response.StatusCode, body)
-		return response.StatusCode, fmt.Errorf("upstream error: %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+		return response.StatusCode, fmt.Errorf("upstream error: %d: %s", response.StatusCode, string(body))
 	}
 
 	// 处理响应

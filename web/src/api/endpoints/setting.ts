@@ -22,9 +22,7 @@ export const SettingKey = {
     CircuitBreakerThreshold: 'circuit_breaker_threshold',
     CircuitBreakerCooldown: 'circuit_breaker_cooldown',
     CircuitBreakerMaxCooldown: 'circuit_breaker_max_cooldown',
-    AutoDisableThreshold: 'auto_disable_threshold',
-    AutoDisableRetryHours: 'auto_disable_retry_hours',
-    ModelCheckInterval: 'model_check_interval',
+    AutoDisableRetryDays: 'auto_disable_retry_days',
 } as const;
 
 /**
@@ -212,4 +210,3 @@ export function useImportDB() {
         },
     });
 }
-

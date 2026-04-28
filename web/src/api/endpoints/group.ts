@@ -182,6 +182,23 @@ export function useDeleteGroup() {
     });
 }
 
+export function useCreateCoderPresetGroups() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (modelName: string) => {
+            return apiClient.post<Group[]>('/api/v1/group/coder-presets', { model_name: modelName });
+        },
+        onSuccess: (data) => {
+            logger.log('编码器预设分组创建成功:', data);
+            queryClient.invalidateQueries({ queryKey: ['groups', 'list'] });
+        },
+        onError: (error) => {
+            logger.error('编码器预设分组创建失败:', error);
+        },
+    });
+}
+
 /**
  * 自动添加分组 item Hook
  *
@@ -198,17 +215,16 @@ export function useDeleteGroup() {
 export function useCreateAgenticGroups() {
     const queryClient = useQueryClient();
 
-    return useMutation({
-        mutationFn: async () => {
-            return apiClient.post<Group[]>('/api/v1/group/create-agentic');
-        },
-        onSuccess: () => {
-            logger.log('Agentic groups created');
-            queryClient.invalidateQueries({ queryKey: ['groups', 'list'] });
-        },
-        onError: (error) => {
-            logger.error('Failed to create agentic groups:', error);
-        },
-    });
-}
-
+//     return useMutation({
+//         mutationFn: async (groupId: number) => {
+//             return apiClient.post<null>(`/api/v1/group/auto-add-item`, { id: groupId });
+//         },
+//         onSuccess: () => {
+//             logger.log('自动添加分组 item 成功');
+//             queryClient.invalidateQueries({ queryKey: ['groups', 'list'] });
+//         },
+//         onError: (error) => {
+//             logger.error('自动添加分组 item 失败:', error);
+//         },
+//     });
+// }

@@ -4,7 +4,7 @@ import {
     MorphingDialogContainer,
     MorphingDialogContent,
 } from '@/components/ui/morphing-dialog';
-import { AlertTriangle, Ban, CheckCircle2, DollarSign, Key, Layers, MessageSquare, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, DollarSign, Key, Layers, MessageSquare, XCircle } from 'lucide-react';
 import { type StatsMetricsFormatted } from '@/api/endpoints/stats';
 import { type Channel, useEnableChannel } from '@/api/endpoints/channel';
 import { CardContent } from './CardContent';
@@ -64,6 +64,8 @@ export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; st
         ...splitModels(channel.custom_model),
     ]).size;
     const enabledKeyCount = channel.keys.filter((item) => item.enabled).length;
+    const hasBillingIssue = channel.tags.includes('billing_issue');
+    const isAutoDisabled = channel.tags.includes('auto_disabled');
 
     const showStatus = (channel.enabled && enabledKeyCount === 0 && channel.keys.length > 0) || (!channel.enabled && channel.auto_disabled);
     const statusSource = `${channel.disabled_reason ?? ''} ${channel.keys.map((k) => k.remark ?? '').join(' ')}`;
@@ -112,6 +114,23 @@ export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; st
                             onClick={(e) => e.stopPropagation()}
                         />
                     </header>
+
+                    {(hasBillingIssue || isAutoDisabled) && (
+                        <div className="flex flex-wrap gap-2">
+                            {isAutoDisabled && (
+                                <Badge variant="secondary" className="bg-orange-500/15 text-orange-700 dark:text-orange-400">
+                                    <AlertTriangle className="mr-1 size-3" />
+                                    {t('tag.autoDisabled')}
+                                </Badge>
+                            )}
+                            {hasBillingIssue && (
+                                <Badge variant="secondary" className="bg-red-500/15 text-red-700 dark:text-red-400">
+                                    <DollarSign className="mr-1 size-3" />
+                                    {t('tag.billingIssue')}
+                                </Badge>
+                            )}
+                        </div>
+                    )}
 
                     {isListLayout ? (
                         <dl className="grid grid-cols-2 gap-2 lg:grid-cols-6">

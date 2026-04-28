@@ -183,6 +183,10 @@
                 "label": "Max Cooldown (seconds)",
                 "placeholder": "Enter max cooldown in seconds"
             },
+            "autoDisableRetryDays": {
+                "label": "Auto-disabled retry interval (days)",
+                "placeholder": "Enter days"
+            },
             "hint": "When a channel fails consecutively up to the threshold, circuit breaker trips. Cooldown grows exponentially up to the max cooldown"
         },
         "saved": "Saved",
@@ -354,6 +358,15 @@
             "submit": "Create",
             "submitting": "Creating..."
         },
+        "preset": {
+            "title": "Coder presets",
+            "modelPlaceholder": "Compatible model, e.g. agentic-coder",
+            "create": "Create Claude Code and Codex groups",
+            "creating": "Creating...",
+            "hint": "Creates anthropic-claude-code and openai-codex groups pointing to the compatible model you choose.",
+            "success": "Coder preset groups created",
+            "failed": "Failed to create coder preset groups"
+        },
         "card": {
             "empty": "No rules"
         },
@@ -464,10 +477,9 @@
         "card": {
             "requestCount": "Requests",
             "totalCost": "Total Cost",
-            "status": {
-                "noMoney": "No money",
-                "badGateway": "Bad gateway",
-                "autoDisabled": "Auto disabled"
+            "tag": {
+                "autoDisabled": "Auto disabled",
+                "billingIssue": "Billing/quota issue"
             },
             "toast": {
                 "enabled": "Channel enabled",

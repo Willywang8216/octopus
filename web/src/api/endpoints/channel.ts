@@ -42,6 +42,9 @@ export type ChannelKey = {
     channel_key: string;
     status_code: number;
     last_use_time_stamp: number;
+    retry_after: number;
+    failure_count: number;
+    last_error: string;
     total_cost: number;
     remark: string;
     status_tag: string;
@@ -55,9 +58,8 @@ export type Channel = {
     name: string;
     type: ChannelType;
     enabled: boolean;
-    auto_disabled: boolean;
-    disabled_at: number;
-    disabled_reason: string;
+    tags: string[];
+    retry_after: number;
     base_urls: BaseUrl[];
     keys: ChannelKey[];
     model: string;
@@ -77,10 +79,11 @@ export type Channel = {
 };
 
 // Internal type: backend may return null for slice fields; normalize to [] in select()
-type ChannelServer = Omit<Channel, 'base_urls' | 'custom_header' | 'keys'> & {
+type ChannelServer = Omit<Channel, 'base_urls' | 'custom_header' | 'keys' | 'tags'> & {
     base_urls: BaseUrl[] | null;
     custom_header: CustomHeader[] | null;
     keys: ChannelKey[] | null;
+    tags: string[] | null;
 };
 
 /**
@@ -164,6 +167,7 @@ export function useChannelList() {
                 base_urls: item.base_urls ?? [],
                 custom_header: item.custom_header ?? [],
                 keys: item.keys ?? [],
+                tags: item.tags ?? [],
             }) satisfies Channel,
             formatted: {
                 input_token: formatCount(item.stats.input_token),
@@ -372,81 +376,6 @@ export function useSyncChannel() {
         },
         onError: (error) => {
             logger.error('渠道同步失败:', error);
-        },
-    });
-}
-
-/**
- * Check model availability for a channel (or all channels if id=0)
- */
-export function useCheckModels() {
-    const queryClient = useQueryClient();
-    return useMutation({
-        mutationFn: async (channelId: number) => {
-            return apiClient.post<null>('/api/v1/channel/check-models', { id: channelId });
-        },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['channels', 'list'] });
-        },
-        onError: (error) => {
-            logger.error('Model check failed:', error);
-        },
-    });
-}
-
-/**
- * Test a specific model on a specific channel
- */
-export function useTestModel() {
-    return useMutation({
-        mutationFn: async (data: { channel_id: number; model: string }) => {
-            return apiClient.post<{ available: boolean; error?: string }>('/api/v1/channel/test-model', data);
-        },
-        onError: (error) => {
-            logger.error('Model test failed:', error);
-        },
-    });
-}
-
-/**
- * Duplicate check result
- */
-export type DuplicateInfo = {
-    channel_id: number;
-    channel_name: string;
-    match_type: 'endpoint_and_key' | 'endpoint' | 'key';
-};
-
-/**
- * Check for duplicate channels (client-side pre-submit validation)
- */
-export function useCheckDuplicate() {
-    return useMutation({
-        mutationFn: async (data: { base_urls: BaseUrl[]; keys: string[]; exclude_id: number }) => {
-            return apiClient.post<DuplicateInfo[] | null>('/api/v1/channel/check-duplicate', data);
-        },
-    });
-}
-
-/**
- * Model test result from test-all-models endpoint
- */
-export type ModelTestResult = {
-    model: string;
-    available: boolean;
-    error?: string;
-};
-
-/**
- * Test all models on a channel
- */
-export function useTestAllModels() {
-    return useMutation({
-        mutationFn: async (channelId: number) => {
-            return apiClient.post<ModelTestResult[]>('/api/v1/channel/test-all-models', { channel_id: channelId });
-        },
-        onError: (error) => {
-            logger.error('Test all models failed:', error);
         },
     });
 }

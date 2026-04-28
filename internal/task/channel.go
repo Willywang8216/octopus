@@ -26,6 +26,9 @@ func ChannelBaseUrlDelayTask() {
 		log.Errorf("failed to list channels: %v", err)
 		return
 	}
+	if err := op.ChannelRetryAutoDisabled(ctx); err != nil {
+		log.Warnf("failed to retry auto disabled channels: %v", err)
+	}
 	for _, channel := range channels {
 		helper.ChannelBaseUrlDelayUpdate(&channel, ctx)
 	}
