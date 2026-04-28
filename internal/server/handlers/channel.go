@@ -55,6 +55,26 @@ func init() {
 		AddRoute(
 			router.NewRoute("/last-sync-time", http.MethodGet).
 				Handle(getLastSyncTime),
+		).
+		AddRoute(
+			router.NewRoute("/test/start", http.MethodPost).
+				Handle(startChannelTest),
+		).
+		AddRoute(
+			router.NewRoute("/test/cancel", http.MethodPost).
+				Handle(cancelChannelTest),
+		).
+		AddRoute(
+			router.NewRoute("/test/status", http.MethodGet).
+				Handle(getChannelTestStatus),
+		).
+		AddRoute(
+			router.NewRoute("/test/results", http.MethodGet).
+				Handle(getChannelTestResults),
+		).
+		AddRoute(
+			router.NewRoute("/test/results/:id", http.MethodGet).
+				Handle(getChannelTestResult),
 		)
 	router.NewGroupRouter("/api/v1/channel").
 		Use(middleware.Auth()).
@@ -220,115 +240,55 @@ func getLastSyncTime(c *gin.Context) {
 	resp.Success(c, time)
 }
 
-func checkModels(c *gin.Context) {
-	var request struct {
-		ID int `json:"id"`
-	}
-	if err := c.ShouldBindJSON(&request); err != nil {
-		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
-		return
-	}
-
-	if request.ID > 0 {
-		// Check a specific channel.
-		go func() {
-			if err := task.CheckModelsForChannel(request.ID); err != nil {
-				log.Warnf("check-models for channel %d failed: %v", request.ID, err)
-			}
-		}()
-	} else {
-		// Check all channels.
-		go task.ModelAvailabilityCheckTask()
-	}
-	resp.Success(c, nil)
+// startChannelTestRequest is the optional payload for /channel/test/start.
+// When `channel_ids` is empty or absent, every enabled channel is tested.
+type startChannelTestRequest struct {
+	ChannelIDs []int `json:"channel_ids"`
 }
 
-func testModel(c *gin.Context) {
-	var request struct {
-		ChannelID int    `json:"channel_id" binding:"required"`
-		Model     string `json:"model" binding:"required"`
+func startChannelTest(c *gin.Context) {
+	var req startChannelTestRequest
+	// Body is optional; ignore parse errors when there is no body to read.
+	if c.Request.ContentLength > 0 {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
+			return
+		}
 	}
-	if err := c.ShouldBindJSON(&request); err != nil {
-		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
+	if err := task.StartChannelTest(req.ChannelIDs); err != nil {
+		// 409 Conflict communicates "already running" without scaring the
+		// frontend into showing an error toast for what is essentially a
+		// benign duplicate-click.
+		resp.Error(c, http.StatusConflict, err.Error())
 		return
 	}
-
-	channel, err := op.ChannelGet(request.ChannelID, c.Request.Context())
-	if err != nil {
-		resp.Error(c, http.StatusNotFound, "channel not found")
-		return
-	}
-
-	ok, err := helper.TestModelAvailability(c.Request.Context(), *channel, request.Model)
-	if err != nil {
-		resp.Success(c, map[string]interface{}{"available": false, "error": err.Error()})
-		return
-	}
-	resp.Success(c, map[string]interface{}{"available": ok})
+	resp.Success(c, task.ChannelTestStatus())
 }
 
-func checkDuplicate(c *gin.Context) {
-	var request struct {
-		BaseUrls  []model.BaseUrl `json:"base_urls"`
-		Keys      []string        `json:"keys"`
-		ExcludeID int             `json:"exclude_id"`
-	}
-	if err := c.ShouldBindJSON(&request); err != nil {
-		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
-		return
-	}
-	dupes := op.ChannelFindDuplicates(request.BaseUrls, request.Keys, request.ExcludeID)
-	resp.Success(c, dupes)
+func cancelChannelTest(c *gin.Context) {
+	task.CancelChannelTest()
+	resp.Success(c, task.ChannelTestStatus())
 }
 
-func testAllModels(c *gin.Context) {
-	var request struct {
-		ChannelID int `json:"channel_id" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&request); err != nil {
-		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
-		return
-	}
+func getChannelTestStatus(c *gin.Context) {
+	resp.Success(c, task.ChannelTestStatus())
+}
 
-	channel, err := op.ChannelGet(request.ChannelID, c.Request.Context())
+func getChannelTestResults(c *gin.Context) {
+	resp.Success(c, task.ChannelTestAllResults())
+}
+
+func getChannelTestResult(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		resp.Error(c, http.StatusNotFound, "channel not found")
+		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidParam)
 		return
 	}
-
-	// Collect all models from both auto and custom.
-	allModels := make([]string, 0)
-	if channel.Model != "" {
-		for _, m := range strings.Split(channel.Model, ",") {
-			m = strings.TrimSpace(m)
-			if m != "" {
-				allModels = append(allModels, m)
-			}
-		}
+	result := task.ChannelTestResult(id)
+	if result == nil {
+		resp.Error(c, http.StatusNotFound, "no test result for this channel")
+		return
 	}
-	if channel.CustomModel != "" {
-		for _, m := range strings.Split(channel.CustomModel, ",") {
-			m = strings.TrimSpace(m)
-			if m != "" {
-				allModels = append(allModels, m)
-			}
-		}
-	}
-
-	type modelResult struct {
-		Model     string `json:"model"`
-		Available bool   `json:"available"`
-		Error     string `json:"error,omitempty"`
-	}
-
-	results := make([]modelResult, 0, len(allModels))
-	for _, m := range allModels {
-		ok, testErr := helper.TestModelAvailability(c.Request.Context(), *channel, m)
-		r := modelResult{Model: m, Available: ok}
-		if testErr != nil {
-			r.Error = testErr.Error()
-		}
-		results = append(results, r)
-	}
-	resp.Success(c, results)
+	resp.Success(c, result)
 }

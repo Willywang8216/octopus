@@ -4,27 +4,24 @@ import (
 	"context"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/bestruirui/octopus/internal/helper"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
-	tmodel "github.com/bestruirui/octopus/internal/transformer/model"
 	"github.com/bestruirui/octopus/internal/transformer/outbound"
 	"github.com/bestruirui/octopus/internal/utils/log"
 	"github.com/bestruirui/octopus/internal/utils/xstrings"
 )
 
-// ChannelProbeTask 周期性向非 ALIVE 渠道发送一发最小请求，
-// 让健康但流量稀少的渠道在审计统计中尽快脱离 NEW/FLAKY 状态。
+// ChannelProbeTask 周期性向非 ALIVE 渠道发送一发最小请求，让健康但流量稀少
+// 的渠道在审计统计中尽快脱离 NEW/FLAKY 状态。
 //
-// 设计要点：
-//   - 仅探测 enabled = true 的渠道；DEAD/ZOMBIE 已在审计阶段被禁用。
-//   - 已稳定（>=20% 成功率且 >=50 次请求）的渠道视为 ALIVE，跳过节省额度。
-//   - 探测请求绕过 group/iterator，直接走 outbound transformer，结果通过
-//     StatsChannelUpdate 累计，与正常流量共用同一统计口径。
-//   - 单次探测带 30s 超时；整个任务运行设全局超时避免长尾阻塞。
+// 与手动 ChannelTest 的关键区别：
+//   - ChannelTest 是诊断工具，不写 StatsChannel；
+//   - ChannelProbeTask 是“合成流量”，**会**写 StatsChannel，
+//     和真实请求共用同一统计口径，因此 auditChannels.py 脚本能据此
+//     判定渠道质量带。
 func ChannelProbeTask() {
 	log.Debugf("channel probe task started")
 	startTime := time.Now()
@@ -57,7 +54,8 @@ func ChannelProbeTask() {
 	}
 }
 
-// isChannelAlive 复刻 scripts/auditChannels.py 的 ALIVE 阈值，避免重复探测稳定渠道。
+// isChannelAlive 复刻 scripts/auditChannels.py 的 ALIVE 阈值，
+// 避免重复探测稳定渠道。
 func isChannelAlive(channelID int) bool {
 	stats := op.StatsChannelGet(channelID)
 	total := stats.RequestSuccess + stats.RequestFailed
@@ -82,7 +80,7 @@ func probeChannel(parent context.Context, channel *model.Channel) {
 		return
 	}
 
-	req := buildProbeRequest(channel.Type, modelName)
+	req := buildChannelTestRequest(channel.Type, modelName)
 	if req == nil {
 		return
 	}
@@ -124,47 +122,11 @@ func probeChannel(parent context.Context, channel *model.Channel) {
 func pickProbeModel(channel *model.Channel) string {
 	models := xstrings.SplitTrimCompact(",", channel.Model, channel.CustomModel)
 	for _, m := range models {
-		m = strings.TrimSpace(m)
 		if m != "" {
 			return m
 		}
 	}
 	return ""
-}
-
-func buildProbeRequest(channelType outbound.OutboundType, modelName string) *tmodel.InternalLLMRequest {
-	switch {
-	case outbound.IsEmbeddingChannelType(channelType):
-		input := "ping"
-		return &tmodel.InternalLLMRequest{
-			Model:          modelName,
-			EmbeddingInput: &tmodel.EmbeddingInput{Single: &input},
-			RawAPIFormat:   tmodel.APIFormatOpenAIEmbedding,
-		}
-	case outbound.IsRerankChannelType(channelType):
-		return &tmodel.InternalLLMRequest{
-			Model: modelName,
-			RerankInput: &tmodel.RerankInput{
-				Query:     "ping",
-				Documents: []tmodel.RerankDoc{{Text: "pong"}},
-			},
-			RawAPIFormat: tmodel.APIFormatOpenAIRerank,
-		}
-	case outbound.IsChatChannelType(channelType):
-		ping := "ping"
-		max := int64(1)
-		return &tmodel.InternalLLMRequest{
-			Model: modelName,
-			Messages: []tmodel.Message{{
-				Role:    "user",
-				Content: tmodel.MessageContent{Content: &ping},
-			}},
-			MaxTokens:    &max,
-			RawAPIFormat: tmodel.APIFormatOpenAIChatCompletion,
-		}
-	default:
-		return nil
-	}
 }
 
 func recordProbeResult(channelID int, success bool) {

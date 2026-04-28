@@ -166,8 +166,8 @@ func generateJWTSecret() (string, error) {
 	return hex.EncodeToString(buf), nil
 }
 
-// JWTSecret returns the current JWT signing secret. Callers should treat the
-// returned bytes as opaque and never log them.
+// JWTSecret returns the current JWT signing secret. Callers should treat
+// the returned bytes as opaque and never log them.
 func JWTSecret() ([]byte, error) {
 	value, ok := settingCache.Get(model.SettingKeyJWTSecret)
 	if !ok || value == "" {

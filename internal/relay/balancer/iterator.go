@@ -33,8 +33,9 @@ func NewIterator(group model.Group, apiKeyID int, requestModel string) *Iterator
 		stickyTTL := time.Duration(group.SessionKeepTime) * time.Second
 		if sticky := GetSticky(apiKeyID, requestModel, stickyTTL); sticky != nil {
 			// 粘性以 (channel, key) 作为目标：iterator 在候选层只能按 channel
-			// 匹配，但会把 KeyID 一并传给上层，由 relay 在选 key 时优先使用，
-			// 避免多 key 渠道在会话期内被切换到不同凭据。
+			// 匹配（GroupItem 不携带 key id），但会把 KeyID 一并传给上层，
+			// 由 relay 在选 key 时优先沿用，避免多 key 渠道在会话期内被
+			// 切换到不同凭据。
 			for i, item := range candidates {
 				if item.ChannelID == sticky.ChannelID {
 					if i > 0 {

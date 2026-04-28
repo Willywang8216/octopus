@@ -15,17 +15,9 @@ import (
 )
 
 // RerankOutbound posts to the upstream's /rerank endpoint using the
-// Cohere/Jina/Voyage-compatible JSON shape and converts the response back
-// into our internal representation.
+// Cohere/Jina/Voyage-compatible JSON shape and converts the response
+// back into our internal representation.
 type RerankOutbound struct{}
-
-type upstreamRerankRequest struct {
-	Model           string             `json:"model"`
-	Query           string             `json:"query"`
-	Documents       []model.RerankDoc  `json:"documents"`
-	TopN            *int64             `json:"top_n,omitempty"`
-	ReturnDocuments *bool              `json:"return_documents,omitempty"`
-}
 
 type upstreamRerankResponse struct {
 	ID      string               `json:"id"`

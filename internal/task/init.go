@@ -94,7 +94,7 @@ func Init() {
 	})
 
 	// 注册渠道健康探测任务：周期性向非 ALIVE 渠道发送最小请求，
-	// 配合 scripts/auditChannels.py 让 NEW/FLAKY 渠道更快被分类。
+	// 让 NEW/FLAKY 渠道更快地被分类。
 	probeIntervalMinutes, err := op.SettingGetInt(model.SettingKeyChannelProbeInterval)
 	if err != nil {
 		log.Warnf("failed to get channel probe interval: %v", err)

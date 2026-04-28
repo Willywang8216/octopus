@@ -42,7 +42,7 @@ func SyncModelsTask() {
 			log.Warnf("failed to fetch models for channel %s: %v", channel.Name, err)
 			continue
 		}
-		// fetch.FetchModels 已统一小写，这里再防御性归一以兼容遗留数据：
+		// FetchModels 已统一小写，这里再防御性归一以兼容遗留数据：
 		// channel.Model 在迁移前可能仍有大小写混用的历史值。
 		oldModels := xstrings.SplitTrimCompact(",", channel.Model)
 		for i, m := range oldModels {

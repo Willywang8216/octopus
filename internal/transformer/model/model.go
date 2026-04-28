@@ -1066,8 +1066,8 @@ type EmbeddingObject struct {
 // allows {text, metadata}); we keep them as decoded JSON values to stay
 // permissive and pass through whatever the upstream accepts.
 type RerankInput struct {
-	Query     string         `json:"query"`
-	Documents []RerankDoc    `json:"documents"`
+	Query     string      `json:"query"`
+	Documents []RerankDoc `json:"documents"`
 	// Extra keeps provider-specific knobs intact end-to-end (e.g. Cohere
 	// "rank_fields"). Marshalled inline by the outbound transformer.
 	Extra map[string]any `json:"extra,omitempty"`

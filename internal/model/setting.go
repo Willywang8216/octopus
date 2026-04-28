@@ -50,7 +50,7 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyCircuitBreakerThreshold, Value: "5"},     // 默认连续失败5次触发熔断
 		{Key: SettingKeyCircuitBreakerCooldown, Value: "60"},     // 默认基础冷却60秒
 		{Key: SettingKeyCircuitBreakerMaxCooldown, Value: "600"}, // 默认最大冷却600秒（10分钟）
-		{Key: SettingKeyChannelProbeInterval, Value: "30"},       // 默认 30 分钟探测一次非 ALIVE 渠道, 0 关闭
+		{Key: SettingKeyChannelProbeInterval, Value: "30"},       // 默认每30分钟探测一次非 ALIVE 渠道, 0 关闭
 	}
 }
 

@@ -15,13 +15,11 @@ type RerankInbound struct {
 }
 
 type openaiRerankRequest struct {
-	Model            string             `json:"model"`
-	Query            string             `json:"query"`
-	Documents        []model.RerankDoc  `json:"documents"`
-	TopN             *int64             `json:"top_n,omitempty"`
-	ReturnDocuments  *bool              `json:"return_documents,omitempty"`
-	// rank_fields and other passthrough knobs land here.
-	Extra map[string]json.RawMessage `json:"-"`
+	Model           string            `json:"model"`
+	Query           string            `json:"query"`
+	Documents       []model.RerankDoc `json:"documents"`
+	TopN            *int64            `json:"top_n,omitempty"`
+	ReturnDocuments *bool             `json:"return_documents,omitempty"`
 }
 
 type openaiRerankResponse struct {
@@ -41,7 +39,7 @@ func (i *RerankInbound) TransformRequest(ctx context.Context, body []byte) (*mod
 	// Capture unknown top-level fields so provider-specific knobs (e.g.
 	// Cohere's rank_fields) survive the round-trip without us having to
 	// enumerate them here.
-	var extras map[string]any
+	extras := make(map[string]any)
 	if err := json.Unmarshal(body, &extras); err == nil {
 		known := map[string]struct{}{
 			"model":            {},
