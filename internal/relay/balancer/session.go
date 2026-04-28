@@ -49,3 +49,24 @@ func SetSticky(apiKeyID int, requestModel string, channelID, keyID int) {
 		Timestamp:    time.Now(),
 	})
 }
+
+// GCSticky 清理超过 maxAge 未更新的粘性会话条目，返回删除条目数。
+// 由后台定时任务调用，避免长时间运行的实例无限堆积过期 key。
+func GCSticky(maxAge time.Duration) int {
+	cutoff := time.Now().Add(-maxAge)
+	removed := 0
+	globalSession.Range(func(k, v any) bool {
+		entry, ok := v.(*SessionEntry)
+		if !ok || entry == nil {
+			globalSession.Delete(k)
+			removed++
+			return true
+		}
+		if entry.Timestamp.Before(cutoff) {
+			globalSession.Delete(k)
+			removed++
+		}
+		return true
+	})
+	return removed
+}
