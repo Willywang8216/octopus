@@ -95,7 +95,8 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 			continue
 		}
 
-		usedKey := channel.GetChannelKey()
+		// 粘性命中时优先沿用上次成功的 key，确保 (channel, key) 元组对会话保持有意义。
+		usedKey := channel.GetChannelKeyByID(iter.StickyKeyID())
 		if usedKey.ChannelKey == "" {
 			iter.Skip(channel.ID, 0, channel.Name, "no available key")
 			continue
