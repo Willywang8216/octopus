@@ -7,7 +7,6 @@ import (
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/utils/cache"
-	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
@@ -122,27 +121,20 @@ func GroupUpdate(req *model.GroupUpdateRequest, ctx context.Context) (*model.Gro
 		}
 	}
 
-	// 批量更新 items
+	// 批量更新 items: 使用参数化的逐条 UPDATE 语句替代手写 CASE 拼接，
+	// 防止 priority/weight 字段未来扩展为非整型时引入注入风险。每条
+	// 语句仍带 group_id 过滤，与原实现一致地阻止跨组覆盖。
 	if len(req.ItemsToUpdate) > 0 {
-		ids := make([]int, len(req.ItemsToUpdate))
-		priorityCase := "CASE id"
-		weightCase := "CASE id"
-		for i, item := range req.ItemsToUpdate {
-			ids[i] = item.ID
-			priorityCase += fmt.Sprintf(" WHEN %d THEN %d", item.ID, item.Priority)
-			weightCase += fmt.Sprintf(" WHEN %d THEN %d", item.ID, item.Weight)
-		}
-		priorityCase += " END"
-		weightCase += " END"
-
-		if err := tx.Model(&model.GroupItem{}).
-			Where("id IN ? AND group_id = ?", ids, req.ID).
-			Updates(map[string]interface{}{
-				"priority": gorm.Expr(priorityCase),
-				"weight":   gorm.Expr(weightCase),
-			}).Error; err != nil {
-			tx.Rollback()
-			return nil, fmt.Errorf("failed to update items: %w", err)
+		for _, item := range req.ItemsToUpdate {
+			if err := tx.Model(&model.GroupItem{}).
+				Where("id = ? AND group_id = ?", item.ID, req.ID).
+				Updates(map[string]interface{}{
+					"priority": item.Priority,
+					"weight":   item.Weight,
+				}).Error; err != nil {
+				tx.Rollback()
+				return nil, fmt.Errorf("failed to update items: %w", err)
+			}
 		}
 	}
 
