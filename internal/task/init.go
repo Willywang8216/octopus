@@ -12,13 +12,14 @@ import (
 )
 
 const (
-	TaskPriceUpdate  = "price_update"
-	TaskStatsSave    = "stats_save"
-	TaskRelayLogSave = "relay_log_save"
-	TaskSyncLLM      = "sync_llm"
-	TaskCleanLLM     = "clean_llm"
-	TaskBaseUrlDelay = "base_url_delay"
-	TaskBalancerGC   = "balancer_gc"
+	TaskPriceUpdate   = "price_update"
+	TaskStatsSave     = "stats_save"
+	TaskRelayLogSave  = "relay_log_save"
+	TaskSyncLLM       = "sync_llm"
+	TaskCleanLLM      = "clean_llm"
+	TaskBaseUrlDelay  = "base_url_delay"
+	TaskBalancerGC    = "balancer_gc"
+	TaskChannelProbe  = "channel_probe"
 )
 
 // 平衡器内存维护：每 5 分钟清理一次过期会话和空闲熔断器条目。
@@ -78,4 +79,13 @@ func Init() {
 			log.Debugf("balancer GC removed %d sticky sessions, %d circuit entries", sessions, circuits)
 		}
 	})
+
+	// 注册渠道健康探测任务：周期性向非 ALIVE 渠道发送最小请求，
+	// 让 NEW/FLAKY 渠道更快地被分类。
+	probeIntervalMinutes, err := op.SettingGetInt(model.SettingKeyChannelProbeInterval)
+	if err != nil {
+		log.Warnf("failed to get channel probe interval: %v", err)
+		return
+	}
+	Register(TaskChannelProbe, time.Duration(probeIntervalMinutes)*time.Minute, false, ChannelProbeTask)
 }
