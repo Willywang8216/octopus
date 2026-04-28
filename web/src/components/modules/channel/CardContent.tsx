@@ -9,9 +9,12 @@ import {
     Activity,
     TrendingUp,
     Globe,
-    Key
+    Key,
+    RefreshCw,
+    AlertTriangle,
+    Ban,
 } from 'lucide-react';
-import { useUpdateChannel, useDeleteChannel, type Channel, type UpdateChannelRequest } from '@/api/endpoints/channel';
+import { useUpdateChannel, useDeleteChannel, useCheckModels, useTestAllModels, type Channel, type UpdateChannelRequest, type ModelTestResult } from '@/api/endpoints/channel';
 import {
     MorphingDialogTitle,
     MorphingDialogDescription,
@@ -26,13 +29,17 @@ import { ChannelForm, type ChannelFormData } from './Form';
 import { formatMoney } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { TestResults } from './TestResults';
 
 export function CardContent({ channel, stats }: { channel: Channel; stats: StatsMetricsFormatted }) {
     const { setIsOpen } = useMorphingDialog();
     const updateChannel = useUpdateChannel();
     const deleteChannel = useDeleteChannel();
+    const checkModels = useCheckModels();
+    const testAllModels = useTestAllModels();
     const [isEditing, setIsEditing] = useState(false);
     const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+    const [modelTestResults, setModelTestResults] = useState<ModelTestResult[] | null>(null);
     const [formData, setFormData] = useState<ChannelFormData>({
         name: channel.name,
         type: channel.type,
@@ -48,6 +55,9 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                 channel_key: k.channel_key,
                 status_code: k.status_code,
                 last_use_time_stamp: k.last_use_time_stamp,
+                retry_after: k.retry_after,
+                failure_count: k.failure_count,
+                last_error: k.last_error,
                 total_cost: k.total_cost,
                 remark: k.remark,
             }))
@@ -58,6 +68,8 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
         auto_sync: channel.auto_sync,
         auto_group: channel.auto_group,
         match_regex: channel.match_regex ?? '',
+        auto_disable_threshold: channel.auto_disable_threshold != null ? String(channel.auto_disable_threshold) : '',
+        auto_disable_retry_hours: channel.auto_disable_retry_hours != null ? String(channel.auto_disable_retry_hours) : '',
     });
     const t = useTranslations('channel.detail');
 
@@ -113,6 +125,18 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
         if (nextMatchRegex !== curMatchRegex) {
             // Empty string means "clear" for patch semantics; backend maps it to NULL.
             req.match_regex = nextMatchRegex;
+        }
+
+        // Per-channel auto-disable overrides
+        const nextThreshold = formData.auto_disable_threshold ? Number(formData.auto_disable_threshold) : null;
+        const curThreshold = channel.auto_disable_threshold ?? null;
+        if (nextThreshold !== curThreshold) {
+            req.auto_disable_threshold = nextThreshold;
+        }
+        const nextRetry = formData.auto_disable_retry_hours ? Number(formData.auto_disable_retry_hours) : null;
+        const curRetry = channel.auto_disable_retry_hours ?? null;
+        if (nextRetry !== curRetry) {
+            req.auto_disable_retry_hours = nextRetry;
         }
 
         const originalKeys = channel.keys;
@@ -370,6 +394,25 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                                 )}
 
                                                 <div className="flex items-center gap-2 shrink-0">
+                                                    {key.status_tag === 'insufficient_funds' && (
+                                                        <Badge className="h-5 px-1.5 text-[10px] gap-1 bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-500/30">
+                                                            <AlertTriangle className="size-2.5" />
+                                                            No Funds
+                                                        </Badge>
+                                                    )}
+                                                    {key.status_tag === 'quota_exceeded' && (
+                                                        <Badge className="h-5 px-1.5 text-[10px] gap-1 bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-500/30">
+                                                            <AlertTriangle className="size-2.5" />
+                                                            Quota
+                                                        </Badge>
+                                                    )}
+                                                    {key.status_tag === 'auto_disabled' && (
+                                                        <Badge variant="destructive" className="h-5 px-1.5 text-[10px] gap-1">
+                                                            <Ban className="size-2.5" />
+                                                            Auto Off
+                                                        </Badge>
+                                                    )}
+
                                                     {key.last_use_time_stamp > 0 && (
                                                         <span className="text-xs text-muted-foreground whitespace-nowrap hidden sm:inline-block">
                                                             {new Date(key.last_use_time_stamp * 1000).toLocaleString()}
@@ -408,6 +451,9 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                     </div>
                                 </section>
 
+                                {/* Test results */}
+                                <TestResults channelID={channel.id} />
+
                                 {/* 等待时间 */}
                                 <dl className="rounded-2xl border bg-card p-3 sm:p-4 transition-colors hover:bg-accent/5">
                                     <dt className="flex items-center gap-2 mb-2 text-xs text-muted-foreground">
@@ -421,14 +467,72 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                 </dl>
                             </div>
 
+                            {/* Model Test Results */}
+                            {modelTestResults && modelTestResults.length > 0 && (
+                                <section className="space-y-3">
+                                    <h4 className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                                        <Activity className="size-3.5" />
+                                        {t('sections.modelTestResults')}
+                                    </h4>
+                                    <div className="rounded-2xl border bg-card overflow-hidden">
+                                        {modelTestResults.map((r) => (
+                                            <div key={r.model} className="flex items-center justify-between p-3 border-b last:border-0">
+                                                <span className="font-mono text-sm truncate min-w-0 flex-1">{r.model}</span>
+                                                <div className="flex items-center gap-2 shrink-0">
+                                                    {r.available ? (
+                                                        <Badge className="h-5 px-1.5 text-[10px] gap-1 bg-green-500/15 text-green-700 dark:text-green-400 border-green-500/30">
+                                                            <CheckCircle2 className="size-2.5" />
+                                                            OK
+                                                        </Badge>
+                                                    ) : (
+                                                        <Badge variant="destructive" className="h-5 px-1.5 text-[10px] gap-1">
+                                                            <XCircle className="size-2.5" />
+                                                            Failed
+                                                        </Badge>
+                                                    )}
+                                                </div>
+                                                {r.error && (
+                                                    <span className="text-[10px] text-destructive ml-2 truncate max-w-40" title={r.error}>
+                                                        {r.error}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </section>
+                            )}
+
                             {/* 操作按钮 */}
-                            <div className="grid gap-3 sm:grid-cols-2 pt-2">
+                            <div className="grid gap-3 grid-cols-2 sm:grid-cols-4 pt-2">
                                 <Button
                                     onClick={() => (isConfirmingDelete ? setIsConfirmingDelete(false) : setIsEditing(true))}
                                     variant={isConfirmingDelete ? 'secondary' : 'default'}
                                     className="w-full rounded-2xl h-12"
                                 >
                                     {isConfirmingDelete ? t('actions.cancel') : t('actions.edit')}
+                                </Button>
+                                <Button
+                                    onClick={() => checkModels.mutate(channel.id)}
+                                    disabled={checkModels.isPending}
+                                    variant="outline"
+                                    className="w-full rounded-2xl h-12"
+                                >
+                                    <RefreshCw className={`size-4 ${checkModels.isPending ? 'animate-spin' : ''}`} />
+                                    {checkModels.isPending ? t('actions.checkingModels') : t('actions.checkModels')}
+                                </Button>
+                                <Button
+                                    onClick={() => {
+                                        setModelTestResults(null);
+                                        testAllModels.mutate(channel.id, {
+                                            onSuccess: (data) => setModelTestResults(data),
+                                        });
+                                    }}
+                                    disabled={testAllModels.isPending}
+                                    variant="outline"
+                                    className="w-full rounded-2xl h-12"
+                                >
+                                    <Activity className={`size-4 ${testAllModels.isPending ? 'animate-pulse' : ''}`} />
+                                    {testAllModels.isPending ? t('actions.testingAllModels') : t('actions.testAllModels')}
                                 </Button>
                                 <Button
                                     onClick={handleDeleteClick}
@@ -457,6 +561,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                 onCancel={() => setIsEditing(false)}
                                 cancelText={t('actions.cancel')}
                                 idPrefix="channel"
+                                excludeChannelId={channel.id}
                             />
                         </TabsContent>
                     </TabsContents>

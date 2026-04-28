@@ -19,7 +19,19 @@ const (
 	SettingKeyCircuitBreakerThreshold   SettingKey = "circuit_breaker_threshold"    // 熔断触发阈值（连续失败次数）
 	SettingKeyCircuitBreakerCooldown    SettingKey = "circuit_breaker_cooldown"     // 熔断基础冷却时间（秒）
 	SettingKeyCircuitBreakerMaxCooldown SettingKey = "circuit_breaker_max_cooldown" // 熔断最大冷却时间（秒），指数退避上限
+	SettingKeyJWTSecret                 SettingKey = "jwt_secret"                   // JWT 签名密钥，首次启动时随机生成，可手动轮换
+	SettingKeyChannelProbeInterval      SettingKey = "channel_probe_interval"       // 通道健康探测间隔(分钟), 0 表示禁用
 )
+
+// IsInternal reports whether a setting key holds a server-side secret that
+// must not be exposed via the public settings API.
+func (k SettingKey) IsInternal() bool {
+	switch k {
+	case SettingKeyJWTSecret:
+		return true
+	}
+	return false
+}
 
 type Setting struct {
 	Key   SettingKey `json:"key" gorm:"primaryKey"`
@@ -38,43 +50,39 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyCircuitBreakerThreshold, Value: "5"},     // 默认连续失败5次触发熔断
 		{Key: SettingKeyCircuitBreakerCooldown, Value: "60"},     // 默认基础冷却60秒
 		{Key: SettingKeyCircuitBreakerMaxCooldown, Value: "600"}, // 默认最大冷却600秒（10分钟）
+		{Key: SettingKeyChannelProbeInterval, Value: "30"},       // 默认每30分钟探测一次非 ALIVE 渠道, 0 关闭
 	}
 }
 
 func (s *Setting) Validate() error {
 	switch s.Key {
 	case SettingKeyModelInfoUpdateInterval, SettingKeySyncLLMInterval, SettingKeyRelayLogKeepPeriod,
-		SettingKeyCircuitBreakerThreshold, SettingKeyCircuitBreakerCooldown, SettingKeyCircuitBreakerMaxCooldown:
+		SettingKeyCircuitBreakerThreshold, SettingKeyCircuitBreakerCooldown, SettingKeyCircuitBreakerMaxCooldown,
+		SettingKeyChannelProbeInterval:
 		_, err := strconv.Atoi(s.Value)
 		if err != nil {
 			return fmt.Errorf("model info update interval must be an integer")
 		}
 		return nil
-	case SettingKeyRelayLogKeepEnabled:
-		if s.Value != "true" && s.Value != "false" {
-			return fmt.Errorf("relay log keep enabled must be true or false")
+	case SettingKeyStatsSaveInterval, SettingKeyChannelKeyRecheckInterval, SettingKeyChannelKeySaveInterval,
+		SettingKeyCircuitBreakerThreshold, SettingKeyCircuitBreakerCooldown, SettingKeyCircuitBreakerMaxCooldown,
+		SettingKeyGroupItemRecheckInterval:
+		if !isPositiveIntSettingValue(s.Value) {
+			return fmt.Errorf("%s must be a positive integer", s.Key)
+		}
+		return nil
+	case SettingKeyRelayLogMaxRows, SettingKeyRelayLogMaxContentBytes, SettingKeyRelayLogVacuumInterval:
+		if !isNonNegativeIntSettingValue(s.Value) {
+			return fmt.Errorf("%s must be a non-negative integer", s.Key)
+		}
+		return nil
+	case SettingKeyRelayLogKeepEnabled, SettingKeyChannelKeyAutoDisableEnabled:
+		if !isBoolSettingValue(s.Value) {
+			return fmt.Errorf("%s must be true or false", s.Key)
 		}
 		return nil
 	case SettingKeyProxyURL:
-		if s.Value == "" {
-			return nil
-		}
-		parsedURL, err := url.Parse(s.Value)
-		if err != nil {
-			return fmt.Errorf("proxy URL is invalid: %w", err)
-		}
-		validSchemes := map[string]bool{
-			"http":   true,
-			"https":  true,
-			"socks5": true,
-		}
-		if !validSchemes[parsedURL.Scheme] {
-			return fmt.Errorf("proxy URL scheme must be http, https, socks, or socks5")
-		}
-		if parsedURL.Host == "" {
-			return fmt.Errorf("proxy URL must have a host")
-		}
-		return nil
+		return isValidProxyURLValue(s.Value)
 	}
 
 	return nil

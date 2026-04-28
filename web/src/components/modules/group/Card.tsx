@@ -92,15 +92,21 @@ export function GroupCard({ group }: { group: Group }) {
     const displayMembers = useMemo((): SelectedMember[] =>
         [...(group.items || [])]
             .sort((a, b) => a.priority - b.priority)
-            .map((item) => ({
-                id: modelChannelKey(item.channel_id, item.model_name),
-                name: item.model_name,
-                enabled: enabledByKey.get(modelChannelKey(item.channel_id, item.model_name)) ?? true,
-                channel_id: item.channel_id,
-                channel_name: channelNameByKey.get(modelChannelKey(item.channel_id, item.model_name)) ?? `Channel ${item.channel_id}`,
-                item_id: item.id,
-                weight: item.weight,
-            })),
+            .map((item) => {
+                const key = modelChannelKey(item.channel_id, item.model_name);
+                const channelEnabled = enabledByKey.get(key) ?? true;
+                const itemEnabled = item.enabled ?? true;
+                return {
+                    id: key,
+                    name: item.model_name,
+                    enabled: channelEnabled && itemEnabled,
+                    channel_id: item.channel_id,
+                    channel_name: channelNameByKey.get(key) ?? `Channel ${item.channel_id}`,
+                    item_id: item.id,
+                    weight: item.weight,
+                    disabled_reason: item.disabled_reason,
+                };
+            }),
         [group.items, channelNameByKey, enabledByKey]
     );
 

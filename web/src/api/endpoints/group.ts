@@ -12,6 +12,9 @@ export interface GroupItem {
     model_name: string;
     priority: number;
     weight: number;
+    enabled?: boolean;
+    disabled_at?: number;
+    disabled_reason?: string;
 }
 
 /**
@@ -179,6 +182,23 @@ export function useDeleteGroup() {
     });
 }
 
+export function useCreateCoderPresetGroups() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (modelName: string) => {
+            return apiClient.post<Group[]>('/api/v1/group/coder-presets', { model_name: modelName });
+        },
+        onSuccess: (data) => {
+            logger.log('编码器预设分组创建成功:', data);
+            queryClient.invalidateQueries({ queryKey: ['groups', 'list'] });
+        },
+        onError: (error) => {
+            logger.error('编码器预设分组创建失败:', error);
+        },
+    });
+}
+
 /**
  * 自动添加分组 item Hook
  *
@@ -189,8 +209,11 @@ export function useDeleteGroup() {
  * const autoAdd = useAutoAddGroupItem();
  * autoAdd.mutate(1); // 为 groupId=1 自动添加匹配的 items
  */
-// export function useAutoAddGroupItem() {
-//     const queryClient = useQueryClient();
+/**
+ * Create pre-configured agentic coding groups (Claude Code + Codex)
+ */
+export function useCreateAgenticGroups() {
+    const queryClient = useQueryClient();
 
 //     return useMutation({
 //         mutationFn: async (groupId: number) => {
@@ -205,4 +228,3 @@ export function useDeleteGroup() {
 //         },
 //     });
 // }
-

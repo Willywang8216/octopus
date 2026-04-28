@@ -32,11 +32,11 @@ func init() {
 		AddRoute(
 			router.NewRoute("/delete/:id", http.MethodDelete).
 				Handle(deleteGroup),
+		).
+		AddRoute(
+			router.NewRoute("/coder-presets", http.MethodPost).
+				Handle(createCoderPresetGroups),
 		)
-	// AddRoute(
-	// 	router.NewRoute("/auto-add-item", http.MethodPost).
-	// 		Handle(autoAddGroupItem),
-	// )
 }
 
 func getGroupList(c *gin.Context) {
@@ -101,6 +101,20 @@ func deleteGroup(c *gin.Context) {
 		return
 	}
 	resp.Success(c, "group deleted successfully")
+}
+
+func createCoderPresetGroups(c *gin.Context) {
+	var req model.GroupPresetRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		resp.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	groups, err := op.GroupCreateCoderPresets(req.ModelName, c.Request.Context())
+	if err != nil {
+		resp.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	resp.Success(c, groups)
 }
 
 // func autoAddGroupItem(c *gin.Context) {

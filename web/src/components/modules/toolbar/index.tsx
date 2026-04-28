@@ -29,7 +29,7 @@ import {
     type ToolbarSortOrder,
 } from './view-options-store';
 
-const CHANNEL_FILTER_OPTIONS: ChannelFilter[] = ['all', 'enabled', 'disabled'];
+const CHANNEL_FILTER_OPTIONS: ChannelFilter[] = ['all', 'enabled', 'disabled', 'funding-issue'];
 const GROUP_FILTER_OPTIONS: GroupFilter[] = ['all', 'with-members', 'empty'];
 const MODEL_FILTER_OPTIONS: ModelFilter[] = ['all', 'priced', 'free'];
 type CombinedSortOption = {
@@ -91,6 +91,7 @@ export function Toolbar() {
         all: 'popover.filter.channel.all',
         enabled: 'popover.filter.channel.enabled',
         disabled: 'popover.filter.channel.disabled',
+        'funding-issue': 'popover.filter.channel.fundingIssue',
     };
     const groupFilterLabelKeys: Record<GroupFilter, string> = {
         all: 'popover.filter.group.all',

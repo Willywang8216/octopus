@@ -1,10 +1,14 @@
 package helper
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/transformer/outbound"
@@ -43,9 +47,129 @@ func FetchModels(ctx context.Context, request model.Channel) ([]string, error) {
 				matchModel = append(matchModel, model)
 			}
 		}
-		return matchModel, nil
+		fetchModel = matchModel
+	}
+	// 统一小写：上游模型名大小写不稳定（同一模型在不同时间可能返回 GPT-4 / gpt-4），
+	// 若不规范化，每次同步都会被 diff 误判为既删除又新增，产生大量噪声并破坏 GroupItem 关联。
+	for i, m := range fetchModel {
+		fetchModel[i] = strings.ToLower(strings.TrimSpace(m))
 	}
 	return fetchModel, nil
+}
+
+func FetchAvailableModels(ctx context.Context, request model.Channel) ([]string, error) {
+	models, err := FetchModels(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	availableModels := make([]string, 0, len(models))
+	for _, modelName := range models {
+		modelName = strings.TrimSpace(modelName)
+		if modelName == "" {
+			continue
+		}
+		checkCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		err := CheckModelAvailability(checkCtx, request, modelName)
+		cancel()
+		if err != nil {
+			continue
+		}
+		availableModels = append(availableModels, modelName)
+	}
+	return availableModels, nil
+}
+
+func CheckModelAvailability(ctx context.Context, request model.Channel, modelName string) error {
+	client, err := ChannelHttpClient(&request)
+	if err != nil {
+		return err
+	}
+	switch request.Type {
+	case outbound.OutboundTypeGemini:
+		return checkGeminiModelAvailability(client, ctx, request, modelName)
+	case outbound.OutboundTypeAnthropic:
+		return checkAnthropicModelAvailability(client, ctx, request, modelName)
+	default:
+		return checkOpenAIModelAvailability(client, ctx, request, modelName)
+	}
+}
+
+func checkOpenAIModelAvailability(client *http.Client, ctx context.Context, request model.Channel, modelName string) error {
+	body := map[string]any{
+		"model":       modelName,
+		"temperature": 0,
+		"max_tokens":  8,
+		"messages": []map[string]string{
+			{"role": "system", "content": "Answer with only the result of the arithmetic expression. This is a normal model availability check."},
+			{"role": "user", "content": "Compute 17 + 25."},
+		},
+	}
+	return postAvailabilityCheck(client, ctx, request, request.GetBaseUrl()+"/chat/completions", "Bearer "+request.GetChannelKey().ChannelKey, body)
+}
+
+func checkAnthropicModelAvailability(client *http.Client, ctx context.Context, request model.Channel, modelName string) error {
+	body := map[string]any{
+		"model":      modelName,
+		"max_tokens": 8,
+		"messages": []map[string]string{
+			{"role": "user", "content": "Compute 17 + 25. Answer with only the number."},
+		},
+	}
+	return postAvailabilityCheck(client, ctx, request, request.GetBaseUrl()+"/messages", request.GetChannelKey().ChannelKey, body)
+}
+
+func checkGeminiModelAvailability(client *http.Client, ctx context.Context, request model.Channel, modelName string) error {
+	body := map[string]any{
+		"contents": []map[string]any{
+			{
+				"role": "user",
+				"parts": []map[string]string{
+					{"text": "Compute 17 + 25. Answer with only the number."},
+				},
+			},
+		},
+		"generationConfig": map[string]any{
+			"temperature":     0,
+			"maxOutputTokens": 8,
+		},
+	}
+	return postAvailabilityCheck(client, ctx, request, request.GetBaseUrl()+"/models/"+modelName+":generateContent", request.GetChannelKey().ChannelKey, body)
+}
+
+func postAvailabilityCheck(client *http.Client, ctx context.Context, request model.Channel, endpoint, authValue string, body any) error {
+	data, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	switch request.Type {
+	case outbound.OutboundTypeAnthropic:
+		req.Header.Set("X-Api-Key", authValue)
+		req.Header.Set("Anthropic-Version", "2023-06-01")
+	case outbound.OutboundTypeGemini:
+		req.Header.Set("X-Goog-Api-Key", authValue)
+	default:
+		req.Header.Set("Authorization", authValue)
+	}
+	for _, header := range request.CustomHeader {
+		if header.HeaderKey != "" {
+			req.Header.Set(header.HeaderKey, header.HeaderValue)
+		}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
+		return fmt.Errorf("availability check failed: %d: %s", resp.StatusCode, string(respBody))
+	}
+	return nil
 }
 
 // refer: https://platform.openai.com/docs/api-reference/models/list
@@ -68,6 +192,11 @@ func fetchOpenAIModels(client *http.Client, ctx context.Context, request model.C
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+		return nil, fmt.Errorf("list models failed (status=%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
 
 	var result model.OpenAIModelList
 

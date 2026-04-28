@@ -3,7 +3,10 @@ package op
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
@@ -16,6 +19,8 @@ var channelCache = cache.New[int, model.Channel](16)
 var channelKeyCache = cache.New[int, model.ChannelKey](16)
 var channelKeyCacheNeedUpdate = make(map[int]struct{})
 var channelKeyCacheNeedUpdateLock sync.Mutex
+var channelCacheNeedUpdate = make(map[int]struct{})
+var channelCacheNeedUpdateLock sync.Mutex
 
 func ChannelList(ctx context.Context) ([]model.Channel, error) {
 	channels := make([]model.Channel, 0, channelCache.Len())
@@ -26,6 +31,9 @@ func ChannelList(ctx context.Context) ([]model.Channel, error) {
 }
 
 func ChannelCreate(channel *model.Channel, ctx context.Context) error {
+	if err := validateChannelDuplicates(0, channel.BaseUrls, channel.Keys); err != nil {
+		return err
+	}
 	if err := db.GetDB().WithContext(ctx).Create(channel).Error; err != nil {
 		return err
 	}
@@ -33,6 +41,76 @@ func ChannelCreate(channel *model.Channel, ctx context.Context) error {
 	for _, k := range channel.Keys {
 		if k.ID != 0 {
 			channelKeyCache.Set(k.ID, k)
+		}
+	}
+	return nil
+}
+
+func normalizeBaseURL(rawURL string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return ""
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return strings.TrimRight(strings.ToLower(rawURL), "/")
+	}
+	u.Scheme = strings.ToLower(u.Scheme)
+	u.Host = strings.ToLower(u.Host)
+	u.Path = strings.TrimRight(u.Path, "/")
+	return strings.TrimRight(u.String(), "/")
+}
+
+func normalizeChannelKey(key string) string {
+	return strings.TrimSpace(key)
+}
+
+func validateChannelDuplicates(channelID int, baseUrls []model.BaseUrl, keys []model.ChannelKey) error {
+	baseURLSet := make(map[string]struct{}, len(baseUrls))
+	for _, baseURL := range baseUrls {
+		normalizedURL := normalizeBaseURL(baseURL.URL)
+		if normalizedURL == "" {
+			continue
+		}
+		if _, ok := baseURLSet[normalizedURL]; ok {
+			return fmt.Errorf("duplicate base url: %s", baseURL.URL)
+		}
+		baseURLSet[normalizedURL] = struct{}{}
+	}
+
+	keySet := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		normalizedKey := normalizeChannelKey(key.ChannelKey)
+		if normalizedKey == "" {
+			continue
+		}
+		if _, ok := keySet[normalizedKey]; ok {
+			return fmt.Errorf("duplicate api key")
+		}
+		keySet[normalizedKey] = struct{}{}
+	}
+
+	for _, channel := range channelCache.GetAll() {
+		if channel.ID == channelID {
+			continue
+		}
+		for _, baseURL := range channel.BaseUrls {
+			normalizedURL := normalizeBaseURL(baseURL.URL)
+			if normalizedURL == "" {
+				continue
+			}
+			if _, ok := baseURLSet[normalizedURL]; ok {
+				return fmt.Errorf("base url already exists in channel %s", channel.Name)
+			}
+		}
+		for _, key := range channel.Keys {
+			normalizedKey := normalizeChannelKey(key.ChannelKey)
+			if normalizedKey == "" {
+				continue
+			}
+			if _, ok := keySet[normalizedKey]; ok {
+				return fmt.Errorf("api key already exists in channel %s", channel.Name)
+			}
 		}
 	}
 	return nil
@@ -65,6 +143,127 @@ func ChannelKeyUpdate(key model.ChannelKey) error {
 	channelKeyCacheNeedUpdateLock.Unlock()
 	return nil
 }
+
+func ChannelMarkKeySuccess(key model.ChannelKey) error {
+	key.FailureCount = 0
+	key.RetryAfter = 0
+	key.LastError = ""
+	return ChannelKeyUpdate(key)
+}
+
+func ChannelMarkKeyFailure(key model.ChannelKey, statusCode int, err error, billingIssue bool) error {
+	key.StatusCode = statusCode
+	key.LastUseTimeStamp = time.Now().Unix()
+	key.FailureCount++
+	if err != nil {
+		key.LastError = err.Error()
+	}
+
+	threshold, _ := SettingGetInt(model.SettingKeyCircuitBreakerThreshold)
+	if threshold <= 0 {
+		threshold = 5
+	}
+	baseCooldown, _ := SettingGetInt(model.SettingKeyCircuitBreakerCooldown)
+	if baseCooldown <= 0 {
+		baseCooldown = 60
+	}
+	maxCooldown, _ := SettingGetInt(model.SettingKeyCircuitBreakerMaxCooldown)
+	if maxCooldown <= 0 {
+		maxCooldown = 600
+	}
+	if billingIssue || key.FailureCount >= threshold {
+		shift := key.FailureCount - threshold
+		if shift < 0 {
+			shift = 0
+		}
+		if shift > 20 {
+			shift = 20
+		}
+		cooldown := baseCooldown << shift
+		if cooldown > maxCooldown {
+			cooldown = maxCooldown
+		}
+		key.RetryAfter = time.Now().Add(time.Duration(cooldown) * time.Second).Unix()
+	}
+
+	return ChannelKeyUpdate(key)
+}
+
+func ChannelSetTags(id int, tags []model.ChannelTag, retryAfter int64, enabled *bool, ctx context.Context) error {
+	ch, ok := channelCache.Get(id)
+	if !ok {
+		return fmt.Errorf("channel not found")
+	}
+	updates := map[string]interface{}{
+		"tags":        tags,
+		"retry_after": retryAfter,
+	}
+	ch.Tags = tags
+	ch.RetryAfter = retryAfter
+	if enabled != nil {
+		updates["enabled"] = *enabled
+		ch.Enabled = *enabled
+	}
+	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+		return err
+	}
+	channelCache.Set(id, ch)
+	return nil
+}
+
+func ChannelAutoDisable(id int, tags []model.ChannelTag, ctx context.Context) error {
+	days, _ := SettingGetInt(model.SettingKeyAutoDisableRetryDays)
+	if days <= 0 {
+		days = 1
+	}
+	enabled := false
+	return ChannelSetTags(id, tags, time.Now().Add(time.Duration(days)*24*time.Hour).Unix(), &enabled, ctx)
+}
+
+func ChannelRetryAutoDisabled(ctx context.Context) error {
+	now := time.Now().Unix()
+	for _, channel := range channelCache.GetAll() {
+		if channel.Enabled || channel.RetryAfter <= 0 || channel.RetryAfter > now || !channelHasTag(channel, model.ChannelTagAutoDisabled) {
+			continue
+		}
+		enabled := true
+		if err := ChannelSetTags(channel.ID, nil, 0, &enabled, ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ChannelCheckAutoDisable(channelID int, billingIssue bool, ctx context.Context) error {
+	channel, ok := channelCache.Get(channelID)
+	if !ok || !channel.Enabled || len(channel.Keys) == 0 {
+		return nil
+	}
+	now := time.Now().Unix()
+	for _, key := range channel.Keys {
+		if !key.Enabled || key.ChannelKey == "" {
+			continue
+		}
+		if key.RetryAfter <= now {
+			return nil
+		}
+	}
+	tags := []model.ChannelTag{model.ChannelTagAutoDisabled}
+	if billingIssue {
+		tags = append(tags, model.ChannelTagBillingIssue)
+	}
+	return ChannelAutoDisable(channelID, tags, ctx)
+}
+
+func channelHasTag(channel model.Channel, tag model.ChannelTag) bool {
+	for _, item := range channel.Tags {
+		if item == tag {
+			return true
+		}
+	}
+	return false
+}
+
 func ChannelBaseUrlUpdate(channelID int, baseUrl []model.BaseUrl) error {
 	ch, ok := channelCache.Get(channelID)
 	if !ok {
@@ -110,9 +309,40 @@ func ChannelKeySaveDB(ctx context.Context) error {
 }
 
 func ChannelUpdate(req *model.ChannelUpdateRequest, ctx context.Context) (*model.Channel, error) {
-	_, ok := channelCache.Get(req.ID)
+	oldChannel, ok := channelCache.Get(req.ID)
 	if !ok {
 		return nil, fmt.Errorf("channel not found")
+	}
+	candidateBaseURLs := oldChannel.BaseUrls
+	if req.BaseUrls != nil {
+		candidateBaseURLs = *req.BaseUrls
+	}
+	candidateKeys := make([]model.ChannelKey, 0, len(oldChannel.Keys)+len(req.KeysToAdd))
+	deleteIDs := make(map[int]struct{}, len(req.KeysToDelete))
+	for _, id := range req.KeysToDelete {
+		deleteIDs[id] = struct{}{}
+	}
+	updateByID := make(map[int]model.ChannelKeyUpdateRequest, len(req.KeysToUpdate))
+	for _, ku := range req.KeysToUpdate {
+		updateByID[ku.ID] = ku
+	}
+	for _, key := range oldChannel.Keys {
+		if _, ok := deleteIDs[key.ID]; ok {
+			continue
+		}
+		if ku, ok := updateByID[key.ID]; ok && ku.ChannelKey != nil {
+			key.ChannelKey = *ku.ChannelKey
+		}
+		if ku, ok := updateByID[key.ID]; ok && ku.Enabled != nil {
+			key.Enabled = *ku.Enabled
+		}
+		candidateKeys = append(candidateKeys, key)
+	}
+	for _, key := range req.KeysToAdd {
+		candidateKeys = append(candidateKeys, model.ChannelKey{Enabled: key.Enabled, ChannelKey: key.ChannelKey})
+	}
+	if err := validateChannelDuplicates(req.ID, candidateBaseURLs, candidateKeys); err != nil {
+		return nil, err
 	}
 
 	tx := db.GetDB().WithContext(ctx).Begin()
@@ -134,8 +364,23 @@ func ChannelUpdate(req *model.ChannelUpdateRequest, ctx context.Context) (*model
 		updates.Type = *req.Type
 	}
 	if req.Enabled != nil {
-		selectFields = append(selectFields, "enabled")
+		selectFields = append(selectFields, "enabled", "auto_disabled", "disabled_at", "disabled_reason")
 		updates.Enabled = *req.Enabled
+		updates.AutoDisabled = false
+		updates.DisabledReason = ""
+		if *req.Enabled {
+			updates.DisabledAt = 0
+		} else {
+			updates.DisabledAt = time.Now().Unix()
+		}
+	}
+	if req.Tags != nil {
+		selectFields = append(selectFields, "tags")
+		updates.Tags = *req.Tags
+	}
+	if req.RetryAfter != nil {
+		selectFields = append(selectFields, "retry_after")
+		updates.RetryAfter = *req.RetryAfter
 	}
 	if req.BaseUrls != nil {
 		selectFields = append(selectFields, "base_urls")
@@ -176,6 +421,14 @@ func ChannelUpdate(req *model.ChannelUpdateRequest, ctx context.Context) (*model
 	if req.MatchRegex != nil {
 		selectFields = append(selectFields, "match_regex")
 		updates.MatchRegex = req.MatchRegex
+	}
+	if req.AutoDisableThreshold != nil {
+		selectFields = append(selectFields, "auto_disable_threshold")
+		updates.AutoDisableThreshold = req.AutoDisableThreshold
+	}
+	if req.AutoDisableRetryHours != nil {
+		selectFields = append(selectFields, "auto_disable_retry_hours")
+		updates.AutoDisableRetryHours = req.AutoDisableRetryHours
 	}
 
 	// 只有当有字段需要更新时才执行 UPDATE
@@ -254,10 +507,20 @@ func ChannelEnabled(id int, enabled bool, ctx context.Context) error {
 	if !ok {
 		return fmt.Errorf("channel not found")
 	}
-	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).Where("id = ?", id).Update("enabled", enabled).Error; err != nil {
+	updates := map[string]interface{}{"enabled": enabled}
+	if enabled {
+		updates["tags"] = []model.ChannelTag(nil)
+		updates["retry_after"] = int64(0)
+	}
+	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).Where("id = ?", id).Updates(updates).Error; err != nil {
 		return err
 	}
+
 	oldChannel.Enabled = enabled
+	if enabled {
+		oldChannel.Tags = nil
+		oldChannel.RetryAfter = 0
+	}
 	channelCache.Set(id, oldChannel)
 	return nil
 }
@@ -405,4 +668,209 @@ func channelRefreshCacheByID(id int, ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// DuplicateInfo describes a channel that conflicts with a proposed new channel.
+type DuplicateInfo struct {
+	ChannelID   int    `json:"channel_id"`
+	ChannelName string `json:"channel_name"`
+	MatchType   string `json:"match_type"` // "endpoint_and_key", "endpoint", "key"
+}
+
+// ChannelCheckDuplicate checks whether any existing channel (excluding excludeID)
+// already uses the same (base_url, api_key) combination. Returns an error describing
+// the duplicate if found, nil otherwise.
+func ChannelCheckDuplicate(baseUrls []model.BaseUrl, keys []string, excludeID int) error {
+	dupes := ChannelFindDuplicates(baseUrls, keys, excludeID)
+	if len(dupes) == 0 {
+		return nil
+	}
+	d := dupes[0]
+	return fmt.Errorf("duplicate: channel %q (id=%d) already uses the same API endpoint and key", d.ChannelName, d.ChannelID)
+}
+
+// ChannelFindDuplicates returns structured information about existing channels
+// that share the same API endpoint and/or key with the proposed channel data.
+func ChannelFindDuplicates(baseUrls []model.BaseUrl, keys []string, excludeID int) []DuplicateInfo {
+	if len(baseUrls) == 0 && len(keys) == 0 {
+		return nil
+	}
+
+	// Build a set of normalized URLs being added.
+	newURLs := make(map[string]struct{}, len(baseUrls))
+	for _, bu := range baseUrls {
+		norm := model.NormalizeBaseURL(bu.URL)
+		if norm != "" {
+			newURLs[norm] = struct{}{}
+		}
+	}
+
+	// Build a set of keys being added.
+	newKeys := make(map[string]struct{}, len(keys))
+	for _, k := range keys {
+		trimmed := strings.TrimSpace(k)
+		if trimmed != "" {
+			newKeys[trimmed] = struct{}{}
+		}
+	}
+
+	seen := make(map[int]struct{})
+	var result []DuplicateInfo
+
+	for _, ch := range channelCache.GetAll() {
+		if ch.ID == excludeID {
+			continue
+		}
+		if _, already := seen[ch.ID]; already {
+			continue
+		}
+
+		urlMatch := false
+		for _, existURL := range ch.BaseUrls {
+			norm := model.NormalizeBaseURL(existURL.URL)
+			if _, ok := newURLs[norm]; ok {
+				urlMatch = true
+				break
+			}
+		}
+
+		keyMatch := false
+		for _, existKey := range ch.Keys {
+			keyVal := strings.TrimSpace(existKey.ChannelKey)
+			if _, ok := newKeys[keyVal]; ok {
+				keyMatch = true
+				break
+			}
+		}
+
+		if urlMatch && keyMatch {
+			result = append(result, DuplicateInfo{ChannelID: ch.ID, ChannelName: ch.Name, MatchType: "endpoint_and_key"})
+			seen[ch.ID] = struct{}{}
+		} else if urlMatch {
+			result = append(result, DuplicateInfo{ChannelID: ch.ID, ChannelName: ch.Name, MatchType: "endpoint"})
+			seen[ch.ID] = struct{}{}
+		} else if keyMatch {
+			result = append(result, DuplicateInfo{ChannelID: ch.ID, ChannelName: ch.Name, MatchType: "key"})
+			seen[ch.ID] = struct{}{}
+		}
+	}
+	return result
+}
+
+// ChannelSetStatusTag updates a channel's status tag in both DB and cache.
+func ChannelSetStatusTag(id int, tag string, ctx context.Context) error {
+	ch, ok := channelCache.Get(id)
+	if !ok {
+		return fmt.Errorf("channel not found")
+	}
+	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).Where("id = ?", id).Update("status_tag", tag).Error; err != nil {
+		return err
+	}
+	ch.StatusTag = tag
+	channelCache.Set(id, ch)
+	return nil
+}
+
+// ChannelSetAutoDisabled disables a channel and marks it as auto-disabled.
+func ChannelSetAutoDisabled(id int, ctx context.Context) error {
+	ch, ok := channelCache.Get(id)
+	if !ok {
+		return fmt.Errorf("channel not found")
+	}
+	now := time.Now().Unix()
+	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"enabled":          false,
+			"status_tag":       model.StatusTagAutoDisabled,
+			"auto_disabled_at": now,
+		}).Error; err != nil {
+		return err
+	}
+	ch.Enabled = false
+	ch.StatusTag = model.StatusTagAutoDisabled
+	ch.AutoDisabledAt = &now
+	channelCache.Set(id, ch)
+	return nil
+}
+
+// ChannelClearAutoDisabled re-enables an auto-disabled channel and clears its tags.
+func ChannelClearAutoDisabled(id int, ctx context.Context) error {
+	ch, ok := channelCache.Get(id)
+	if !ok {
+		return fmt.Errorf("channel not found")
+	}
+	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"enabled":          true,
+			"status_tag":       model.StatusTagNone,
+			"auto_disabled_at": nil,
+		}).Error; err != nil {
+		return err
+	}
+	ch.Enabled = true
+	ch.StatusTag = model.StatusTagNone
+	ch.AutoDisabledAt = nil
+	channelCache.Set(id, ch)
+
+	// Also re-enable all keys and clear their status tags.
+	keys := make([]model.ChannelKey, len(ch.Keys))
+	copy(keys, ch.Keys)
+	for i := range keys {
+		keys[i].Enabled = true
+		keys[i].StatusTag = model.StatusTagNone
+		channelKeyCache.Set(keys[i].ID, keys[i])
+		channelKeyCacheNeedUpdateLock.Lock()
+		channelKeyCacheNeedUpdate[keys[i].ID] = struct{}{}
+		channelKeyCacheNeedUpdateLock.Unlock()
+	}
+	ch.Keys = keys
+	channelCache.Set(id, ch)
+	return nil
+}
+
+// ChannelKeySetStatusTag updates a key's status tag in cache and marks it for DB sync.
+func ChannelKeySetStatusTag(keyID int, tag string, disable bool) error {
+	k, ok := channelKeyCache.Get(keyID)
+	if !ok {
+		return fmt.Errorf("channel key not found")
+	}
+	k.StatusTag = tag
+	if disable {
+		k.Enabled = false
+	}
+
+	// Update in channel cache too.
+	ch, chOK := channelCache.Get(k.ChannelID)
+	if chOK {
+		keys := make([]model.ChannelKey, len(ch.Keys))
+		copy(keys, ch.Keys)
+		for i := range keys {
+			if keys[i].ID == keyID {
+				keys[i] = k
+				break
+			}
+		}
+		ch.Keys = keys
+		channelCache.Set(k.ChannelID, ch)
+	}
+
+	channelKeyCache.Set(keyID, k)
+	channelKeyCacheNeedUpdateLock.Lock()
+	channelKeyCacheNeedUpdate[keyID] = struct{}{}
+	channelKeyCacheNeedUpdateLock.Unlock()
+	return nil
+}
+
+// ChannelAllKeysDisabled returns true if every key in the channel is disabled.
+func ChannelAllKeysDisabled(channelID int) bool {
+	ch, ok := channelCache.Get(channelID)
+	if !ok || len(ch.Keys) == 0 {
+		return true
+	}
+	for _, k := range ch.Keys {
+		if k.Enabled {
+			return false
+		}
+	}
+	return true
 }

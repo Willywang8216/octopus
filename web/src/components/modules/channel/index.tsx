@@ -3,6 +3,7 @@
 import { useMemo } from 'react';
 import { useChannelList } from '@/api/endpoints/channel';
 import { Card } from './Card';
+import { TestPanel } from './TestPanel';
 import { useSearchStore, useToolbarViewOptionsStore } from '@/components/modules/toolbar';
 import { VirtualizedGrid } from '@/components/common/VirtualizedGrid';
 
@@ -31,18 +32,28 @@ export function Channel() {
 
         if (filter === 'enabled') return byName.filter((c) => c.raw.enabled);
         if (filter === 'disabled') return byName.filter((c) => !c.raw.enabled);
+        if (filter === 'funding-issue') return byName.filter((c) =>
+            c.raw.status_tag === 'insufficient_funds' ||
+            c.raw.status_tag === 'quota_exceeded' ||
+            c.raw.keys.some((k) => k.status_tag === 'insufficient_funds' || k.status_tag === 'quota_exceeded')
+        );
 
         return byName;
     }, [sortedChannels, searchTerm, filter]);
 
     return (
-        <VirtualizedGrid
-            items={visibleChannels}
-            layout={layout}
-            columns={{ default: 1, md: 2, lg: 3 }}
-            estimateItemHeight={216}
-            getItemKey={(item) => `channel-${item.raw.id}`}
-            renderItem={(item) => <Card channel={item.raw} stats={item.formatted} layout={layout} />}
-        />
+        <div className="flex h-full min-h-0 flex-col">
+            <TestPanel />
+            <div className="min-h-0 flex-1">
+                <VirtualizedGrid
+                    items={visibleChannels}
+                    layout={layout}
+                    columns={{ default: 1, md: 2, lg: 3 }}
+                    estimateItemHeight={216}
+                    getItemKey={(item) => `channel-${item.raw.id}`}
+                    renderItem={(item) => <Card channel={item.raw} stats={item.formatted} layout={layout} />}
+                />
+            </div>
+        </div>
     );
 }

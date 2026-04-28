@@ -3,11 +3,11 @@ package op
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/bestruirui/octopus/internal/db"
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/utils/cache"
-	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
@@ -50,6 +50,9 @@ func GroupGetEnabledMap(name string, ctx context.Context) (model.Group, error) {
 
 	enabledItems := make([]model.GroupItem, 0, len(group.Items))
 	for _, item := range group.Items {
+		if !item.Enabled {
+			continue
+		}
 		channel, ok := channelCache.Get(item.ChannelID)
 		if !ok || !channel.Enabled {
 			continue
@@ -61,12 +64,90 @@ func GroupGetEnabledMap(name string, ctx context.Context) (model.Group, error) {
 }
 
 func GroupCreate(group *model.Group, ctx context.Context) error {
+	for i := range group.Items {
+		group.Items[i].Enabled = true
+	}
 	if err := db.GetDB().WithContext(ctx).Create(group).Error; err != nil {
 		return err
 	}
 	groupCache.Set(group.ID, *group)
 	groupMap.Set(group.Name, *group)
 	return nil
+}
+
+func GroupCreateCoderPresets(modelName string, ctx context.Context) ([]model.Group, error) {
+	modelName = strings.TrimSpace(modelName)
+	if modelName == "" {
+		return nil, fmt.Errorf("model name is required")
+	}
+
+	targets := []struct {
+		groupName string
+		regex     string
+	}{
+		{groupName: "anthropic-claude-code", regex: "^(claude|anthropic|claude-code)$"},
+		{groupName: "openai-codex", regex: "^(codex|openai-codex)$"},
+	}
+
+	channels, err := ChannelList(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]model.GroupItem, 0)
+	for _, channel := range channels {
+		modelNames := xstrings.SplitTrimCompact(",", channel.Model, channel.CustomModel)
+		for _, name := range modelNames {
+			if strings.EqualFold(name, modelName) {
+				items = append(items, model.GroupItem{
+					ChannelID: channel.ID,
+					ModelName: name,
+					Weight:    1,
+				})
+				break
+			}
+		}
+	}
+	if len(items) == 0 {
+		return nil, fmt.Errorf("model %s is not available in any channel", modelName)
+	}
+
+	created := make([]model.Group, 0, len(targets))
+	for _, target := range targets {
+		if existing, ok := groupMap.Get(target.groupName); ok {
+			pairs := make([]model.GroupIDAndLLMName, len(items))
+			for i, item := range items {
+				pairs[i] = model.GroupIDAndLLMName{ChannelID: item.ChannelID, ModelName: item.ModelName}
+			}
+			if err := GroupItemBatchAdd(existing.ID, pairs, ctx); err != nil {
+				return nil, err
+			}
+			group, err := GroupGet(existing.ID, ctx)
+			if err != nil {
+				return nil, err
+			}
+			created = append(created, *group)
+			continue
+		}
+
+		groupItems := make([]model.GroupItem, len(items))
+		for i, item := range items {
+			groupItems[i] = item
+			groupItems[i].Priority = i + 1
+		}
+		group := model.Group{
+			Name:              target.groupName,
+			Mode:              model.GroupModeFailover,
+			MatchRegex:        target.regex,
+			FirstTokenTimeOut: 30,
+			SessionKeepTime:   0,
+			Items:             groupItems,
+		}
+		if err := GroupCreate(&group, ctx); err != nil {
+			return nil, err
+		}
+		created = append(created, group)
+	}
+	return created, nil
 }
 
 func GroupUpdate(req *model.GroupUpdateRequest, ctx context.Context) (*model.Group, error) {
@@ -114,7 +195,6 @@ func GroupUpdate(req *model.GroupUpdateRequest, ctx context.Context) (*model.Gro
 		}
 	}
 
-	// 删除 items
 	if len(req.ItemsToDelete) > 0 {
 		if err := tx.Where("id IN ? AND group_id = ?", req.ItemsToDelete, req.ID).Delete(&model.GroupItem{}).Error; err != nil {
 			tx.Rollback()
@@ -122,31 +202,23 @@ func GroupUpdate(req *model.GroupUpdateRequest, ctx context.Context) (*model.Gro
 		}
 	}
 
-	// 批量更新 items
+	// 批量更新 items: 使用参数化的逐条 UPDATE 语句替代手写 CASE 拼接，
+	// 防止 priority/weight 字段未来扩展为非整型时引入注入风险。每条
+	// 语句仍带 group_id 过滤，与原实现一致地阻止跨组覆盖。
 	if len(req.ItemsToUpdate) > 0 {
-		ids := make([]int, len(req.ItemsToUpdate))
-		priorityCase := "CASE id"
-		weightCase := "CASE id"
-		for i, item := range req.ItemsToUpdate {
-			ids[i] = item.ID
-			priorityCase += fmt.Sprintf(" WHEN %d THEN %d", item.ID, item.Priority)
-			weightCase += fmt.Sprintf(" WHEN %d THEN %d", item.ID, item.Weight)
-		}
-		priorityCase += " END"
-		weightCase += " END"
-
-		if err := tx.Model(&model.GroupItem{}).
-			Where("id IN ? AND group_id = ?", ids, req.ID).
-			Updates(map[string]interface{}{
-				"priority": gorm.Expr(priorityCase),
-				"weight":   gorm.Expr(weightCase),
-			}).Error; err != nil {
-			tx.Rollback()
-			return nil, fmt.Errorf("failed to update items: %w", err)
+		for _, item := range req.ItemsToUpdate {
+			if err := tx.Model(&model.GroupItem{}).
+				Where("id = ? AND group_id = ?", item.ID, req.ID).
+				Updates(map[string]interface{}{
+					"priority": item.Priority,
+					"weight":   item.Weight,
+				}).Error; err != nil {
+				tx.Rollback()
+				return nil, fmt.Errorf("failed to update items: %w", err)
+			}
 		}
 	}
 
-	// 批量新增 items
 	if len(req.ItemsToAdd) > 0 {
 		newItems := make([]model.GroupItem, len(req.ItemsToAdd))
 		for i, item := range req.ItemsToAdd {
@@ -156,6 +228,7 @@ func GroupUpdate(req *model.GroupUpdateRequest, ctx context.Context) (*model.Gro
 				ModelName: item.ModelName,
 				Priority:  item.Priority,
 				Weight:    item.Weight,
+				Enabled:   true,
 			}
 		}
 		if err := tx.Create(&newItems).Error; err != nil {
@@ -168,7 +241,6 @@ func GroupUpdate(req *model.GroupUpdateRequest, ctx context.Context) (*model.Gro
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	// 刷新缓存并返回最新数据
 	if err := groupRefreshCacheByID(req.ID, ctx); err != nil {
 		return nil, err
 	}
@@ -216,6 +288,7 @@ func GroupItemAdd(item *model.GroupItem, ctx context.Context) error {
 	if _, ok := groupCache.Get(item.GroupID); !ok {
 		return fmt.Errorf("group not found")
 	}
+	item.Enabled = true
 
 	if err := db.GetDB().WithContext(ctx).Create(item).Error; err != nil {
 		return err
@@ -266,6 +339,7 @@ func GroupItemBatchAdd(groupID int, items []model.GroupIDAndLLMName, ctx context
 			ModelName: it.ModelName,
 			Priority:  nextPriority,
 			Weight:    1,
+			Enabled:   true,
 		})
 		nextPriority++
 	}
@@ -302,6 +376,57 @@ func GroupItemDel(id int, ctx context.Context) error {
 		return err
 	}
 
+	return groupRefreshCacheByID(item.GroupID, ctx)
+}
+
+func GroupItemDisable(id int, reason string, ctx context.Context) error {
+	var item model.GroupItem
+	if err := db.GetDB().WithContext(ctx).First(&item, id).Error; err != nil {
+		return fmt.Errorf("group item not found")
+	}
+	if !item.Enabled {
+		return nil
+	}
+
+	r := strings.TrimSpace(reason)
+	if len(r) > 256 {
+		r = r[:256]
+	}
+
+	prev := strings.TrimSpace(item.DisabledReason)
+	msg := fmt.Sprintf("auto-disabled: time=%s reason=%s", time.Now().UTC().Format(time.RFC3339), r)
+	if prev != "" {
+		msg += " | prev=" + prev
+	}
+
+	if err := db.GetDB().WithContext(ctx).Model(&model.GroupItem{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{"enabled": false, "disabled_at": time.Now().Unix(), "disabled_reason": msg}).Error; err != nil {
+		return err
+	}
+	return groupRefreshCacheByID(item.GroupID, ctx)
+}
+
+func GroupItemEnable(id int, ctx context.Context) error {
+	var item model.GroupItem
+	if err := db.GetDB().WithContext(ctx).First(&item, id).Error; err != nil {
+		return fmt.Errorf("group item not found")
+	}
+	if item.Enabled {
+		return nil
+	}
+
+	prev := strings.TrimSpace(item.DisabledReason)
+	msg := "auto-reenabled: time=" + time.Now().UTC().Format(time.RFC3339)
+	if prev != "" {
+		msg += " | prev=" + prev
+	}
+
+	if err := db.GetDB().WithContext(ctx).Model(&model.GroupItem{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{"enabled": true, "disabled_at": 0, "disabled_reason": msg}).Error; err != nil {
+		return err
+	}
 	return groupRefreshCacheByID(item.GroupID, ctx)
 }
 

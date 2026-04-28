@@ -1,0 +1,15 @@
+HIGH PRIORITY — fixes the dominant latency/hang issue.
+
+Octopus's HTTP client has no Timeout/IdleConnTimeout/etc. set.
+A stalled upstream hangs the entire request indefinitely; failover
+never kicks in for non-streaming calls because the iterator can't
+advance until the previous attempt errors.
+
+Adds:
+  - per-request Timeout (configurable, default 90s)
+  - Dial/TLS handshake timeouts
+  - ResponseHeaderTimeout for fast-fail on stuck origins
+  - MaxIdleConns / IdleConnTimeout for connection reuse hygiene
+
+After applying this, Octopus will fall through to the next channel
+within ~60-90 seconds of a hang instead of indefinitely.

@@ -14,7 +14,18 @@ import (
 	"github.com/bestruirui/octopus/internal/utils/log"
 )
 
-// RelayMetrics 负责最终的日志收集与持久化
+func truncateForLog(s string, maxBytes int) string {
+	if maxBytes <= 0 {
+		return s
+	}
+	if len(s) <= maxBytes {
+		return s
+	}
+	// Keep it simple: byte-based truncation. These payloads are JSON/ASCII in practice.
+	return s[:maxBytes] + "...[truncated]"
+}
+
+// RelayMetrics 统一管理请求的日志记录和统计信息
 type RelayMetrics struct {
 	APIKeyID     int
 	RequestModel string
@@ -109,19 +120,32 @@ func (m *RelayMetrics) Save(ctx context.Context, success bool, err error, attemp
 }
 
 func finalChannel(attempts []model.ChannelAttempt) (int, string) {
-	var lastID int
-	var lastName string
+	var lastFailedID int
+	var lastFailedName string
+	var lastAnyID int
+	var lastAnyName string
+
 	for i := len(attempts) - 1; i >= 0; i-- {
 		a := attempts[i]
+
+		if lastAnyID == 0 && a.ChannelID != 0 {
+			lastAnyID = a.ChannelID
+			lastAnyName = a.ChannelName
+		}
+
 		if a.Status == model.AttemptSuccess {
 			return a.ChannelID, a.ChannelName
 		}
-		if a.Status == model.AttemptFailed && lastID == 0 {
-			lastID = a.ChannelID
-			lastName = a.ChannelName
+		if a.Status == model.AttemptFailed && lastFailedID == 0 {
+			lastFailedID = a.ChannelID
+			lastFailedName = a.ChannelName
 		}
 	}
-	return lastID, lastName
+
+	if lastFailedID != 0 {
+		return lastFailedID, lastFailedName
+	}
+	return lastAnyID, lastAnyName
 }
 
 func (m *RelayMetrics) saveLog(ctx context.Context, err error, duration time.Duration, attempts []model.ChannelAttempt, channelID int, channelName string) {
@@ -157,10 +181,15 @@ func (m *RelayMetrics) saveLog(ctx context.Context, err error, duration time.Dur
 		relayLog.Cost = m.Stats.InputCost + m.Stats.OutputCost
 	}
 
-	// 请求内容
+	maxBytes := 0
+	if n, err := op.SettingGetInt(model.SettingKeyRelayLogMaxContentBytes); err == nil {
+		maxBytes = n
+	}
+
+	// 设置请求内容
 	if m.InternalRequest != nil {
 		if reqJSON, jsonErr := json.Marshal(m.InternalRequest); jsonErr == nil {
-			relayLog.RequestContent = string(reqJSON)
+			relayLog.RequestContent = truncateForLog(string(reqJSON), maxBytes)
 		}
 	}
 
@@ -174,13 +203,13 @@ func (m *RelayMetrics) saveLog(ctx context.Context, err error, duration time.Dur
 				insert := fmt.Sprintf(`"usage":{"cache_creation_input_tokens":%d,`, m.InternalResponse.Usage.CacheCreationInputTokens)
 				respJSON = []byte(strings.Replace(respStr, old, insert, 1))
 			}
-			relayLog.ResponseContent = string(respJSON)
+			relayLog.ResponseContent = truncateForLog(string(respJSON), maxBytes)
 		}
 	}
 
 	// 错误信息
 	if err != nil {
-		relayLog.Error = err.Error()
+		relayLog.Error = truncateForLog(err.Error(), maxBytes)
 	}
 
 	if logErr := op.RelayLogAdd(ctx, relayLog); logErr != nil {
@@ -188,7 +217,7 @@ func (m *RelayMetrics) saveLog(ctx context.Context, err error, duration time.Dur
 	}
 }
 
-// filterResponseForLog 创建响应的浅拷贝，过滤掉 images、MultipleContent 中的图片数据和 Audio.Data 以减少存储压力
+// filterResponseForLog 创建响应的浅拷贝，过滤掉 images / embedding 向量等大字段以减少存储压力
 func (m *RelayMetrics) filterResponseForLog(resp *transformerModel.InternalLLMResponse) *transformerModel.InternalLLMResponse {
 	if resp == nil {
 		return nil
@@ -223,11 +252,57 @@ func (m *RelayMetrics) filterResponseForLog(resp *transformerModel.InternalLLMRe
 	}
 
 	filtered := *resp
+
+	// Chat response: filter images
 	filtered.Choices = make([]transformerModel.Choice, len(resp.Choices))
 	for i, choice := range resp.Choices {
 		filtered.Choices[i] = choice
 		filtered.Choices[i].Message = filterMsg(choice.Message)
 		filtered.Choices[i].Delta = filterMsg(choice.Delta)
 	}
+
+	// Embedding response: vectors are huge; omit them but keep indices.
+	if len(resp.EmbeddingData) > 0 {
+		filtered.EmbeddingData = make([]transformerModel.EmbeddingObject, len(resp.EmbeddingData))
+		for i, obj := range resp.EmbeddingData {
+			filtered.EmbeddingData[i] = transformerModel.EmbeddingObject{
+				Object: obj.Object,
+				Index:  obj.Index,
+				Embedding: transformerModel.Embedding{
+					Base64String: ptr("[embedding omitted for storage]"),
+				},
+			}
+		}
+	}
+
 	return &filtered
+}
+
+func ptr[T any](v T) *T { return &v }
+
+// filterMessageContent 过滤 MessageContent 中的图片数据
+func (m *RelayMetrics) filterMessageContent(content transformerModel.MessageContent) transformerModel.MessageContent {
+	if len(content.MultipleContent) == 0 {
+		return content
+	}
+
+	filteredParts := make([]transformerModel.MessageContentPart, 0, len(content.MultipleContent))
+	for _, part := range content.MultipleContent {
+		if part.Type == "image_url" && part.ImageURL != nil {
+			// 用占位符替换图片数据
+			filteredParts = append(filteredParts, transformerModel.MessageContentPart{
+				Type: "image_url",
+				ImageURL: &transformerModel.ImageURL{
+					URL: "[image data omitted for storage]",
+				},
+			})
+		} else {
+			filteredParts = append(filteredParts, part)
+		}
+	}
+
+	return transformerModel.MessageContent{
+		Content:         content.Content,
+		MultipleContent: filteredParts,
+	}
 }

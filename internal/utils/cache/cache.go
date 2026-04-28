@@ -25,6 +25,9 @@ func New[K comparable, V any](shards int) Cache[K, V] {
 	if shards <= 0 {
 		shards = 1024
 	}
+	// shardMask = shards-1 requires a power-of-2 shard count.
+	// Round up to the next power of 2 for callers passing arbitrary values.
+	shards = nextPowerOf2(shards)
 
 	c := &cache[K, V]{
 		shards:    make([]*shard[K, V], shards),
@@ -100,4 +103,21 @@ func (c *cache[K, V]) Clear() {
 	for _, s := range c.shards {
 		s.clear()
 	}
+}
+
+
+// nextPowerOf2 returns n if n is already a power of 2, otherwise the next
+// power of 2 above n. n must be > 0.
+func nextPowerOf2(n int) int {
+	if n <= 1 {
+		return 1
+	}
+	if n&(n-1) == 0 {
+		return n
+	}
+	p := 1
+	for p < n {
+		p <<= 1
+	}
+	return p
 }

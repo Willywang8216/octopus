@@ -20,6 +20,7 @@ export interface SelectedMember extends LLMChannel {
     id: string;
     item_id?: number;
     weight?: number;
+    disabled_reason?: string;
 }
 
 function reorderList<T>(list: T[], startIndex: number, endIndex: number): T[] {
@@ -78,11 +79,14 @@ function MemberItem({
                 ...(dnd.isDragging ? { zIndex: 50, boxShadow: '0 8px 32px rgba(0,0,0,0.15)' } : null),
             }}
         >
-            <div className={cn(
-                'flex items-center gap-2 rounded-lg bg-background border border-border/50 px-2.5 py-2 select-none transition-opacity duration-200 relative overflow-hidden',
-                isRemoving && 'opacity-0',
-                isDisabled && 'opacity-60 grayscale'
-            )}>
+            <div
+                className={cn(
+                    'flex items-center gap-2 rounded-lg bg-background border border-border/50 px-2.5 py-2 select-none transition-opacity duration-200 relative overflow-hidden',
+                    isRemoving && 'opacity-0',
+                    isDisabled && 'opacity-60 grayscale'
+                )}
+                title={isDisabled && member.disabled_reason ? member.disabled_reason : undefined}
+            >
                 <span className={cn(
                     'size-5 rounded-md text-xs font-bold grid place-items-center shrink-0',
                     isDisabled ? 'bg-muted text-muted-foreground' : 'bg-primary/10 text-primary'

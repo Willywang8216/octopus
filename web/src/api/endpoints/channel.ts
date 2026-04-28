@@ -42,8 +42,12 @@ export type ChannelKey = {
     channel_key: string;
     status_code: number;
     last_use_time_stamp: number;
+    retry_after: number;
+    failure_count: number;
+    last_error: string;
     total_cost: number;
     remark: string;
+    status_tag: string;
 };
 
 /**
@@ -54,6 +58,8 @@ export type Channel = {
     name: string;
     type: ChannelType;
     enabled: boolean;
+    tags: string[];
+    retry_after: number;
     base_urls: BaseUrl[];
     keys: ChannelKey[];
     model: string;
@@ -66,13 +72,18 @@ export type Channel = {
     channel_proxy?: string | null;
     match_regex?: string | null;
     stats: StatsChannel;
+    status_tag: string;
+    auto_disabled_at?: number | null;
+    auto_disable_threshold?: number | null;
+    auto_disable_retry_hours?: number | null;
 };
 
 // Internal type: backend may return null for slice fields; normalize to [] in select()
-type ChannelServer = Omit<Channel, 'base_urls' | 'custom_header' | 'keys'> & {
+type ChannelServer = Omit<Channel, 'base_urls' | 'custom_header' | 'keys' | 'tags'> & {
     base_urls: BaseUrl[] | null;
     custom_header: CustomHeader[] | null;
     keys: ChannelKey[] | null;
+    tags: string[] | null;
 };
 
 /**
@@ -93,6 +104,8 @@ export type CreateChannelRequest = {
     channel_proxy?: string | null;
     param_override?: string | null;
     match_regex?: string | null;
+    auto_disable_threshold?: number | null;
+    auto_disable_retry_hours?: number | null;
 };
 
 /**
@@ -113,6 +126,8 @@ export type UpdateChannelRequest = {
     channel_proxy?: string | null;
     param_override?: string | null;
     match_regex?: string | null;
+    auto_disable_threshold?: number | null;
+    auto_disable_retry_hours?: number | null;
     // keys diff
     keys_to_add?: Array<Pick<ChannelKey, 'enabled' | 'channel_key' | 'remark'>>;
     keys_to_update?: Array<{ id: number; enabled?: boolean; channel_key?: string; remark?: string }>;
@@ -152,6 +167,7 @@ export function useChannelList() {
                 base_urls: item.base_urls ?? [],
                 custom_header: item.custom_header ?? [],
                 keys: item.keys ?? [],
+                tags: item.tags ?? [],
             }) satisfies Channel,
             formatted: {
                 input_token: formatCount(item.stats.input_token),
@@ -360,6 +376,138 @@ export function useSyncChannel() {
         },
         onError: (error) => {
             logger.error('渠道同步失败:', error);
+        },
+    });
+}
+
+/**
+ * Channel test results — backend type mirror.
+ *
+ * The frontend renders progressively: the run status (lightweight summaries)
+ * powers the channel list badge counts, while detail views fetch the full
+ * per-channel result on demand.
+ */
+export type ChannelTestModelResult = {
+    model: string;
+    success: boolean;
+    status_code: number;
+    duration_ms: number;
+    error?: string;
+};
+
+export type ChannelTestKeyResult = {
+    key_id: number;
+    key_preview: string;
+    key_remark?: string;
+    enabled: boolean;
+    results: ChannelTestModelResult[];
+};
+
+export type ChannelTestChannelResult = {
+    channel_id: number;
+    channel_name: string;
+    started_at: string;
+    finished_at?: string;
+    total_models: number;
+    worked_models: number;
+    total_keys: number;
+    worked_keys: number;
+    skipped?: string;
+    keys: ChannelTestKeyResult[];
+};
+
+export type ChannelTestChannelSummary = {
+    channel_id: number;
+    channel_name: string;
+    total_models: number;
+    worked_models: number;
+    total_keys: number;
+    worked_keys: number;
+    started_at: string;
+    finished_at?: string;
+    skipped?: string;
+};
+
+export type ChannelTestRunStatus = {
+    running: boolean;
+    total_channels: number;
+    completed_channels: number;
+    started_at: string;
+    finished_at?: string;
+    channels?: Record<string, ChannelTestChannelSummary>;
+};
+
+/**
+ * Live status of the channel test runner. Polls every 2s while a run is
+ * active so the per-card badges update in near-real-time.
+ */
+export function useChannelTestStatus() {
+    return useQuery<ChannelTestRunStatus>({
+        queryKey: ['channels', 'test', 'status'],
+        queryFn: async () => apiClient.get<ChannelTestRunStatus>('/api/v1/channel/test/status'),
+        refetchInterval: (query) => (query.state.data?.running ? 2000 : false),
+        refetchOnWindowFocus: false,
+    });
+}
+
+/**
+ * Full per-channel test report. Fetched lazily when a card is opened so we
+ * avoid shipping the entire result tree on the channel list page.
+ */
+export function useChannelTestResult(channelID: number, enabled: boolean) {
+    return useQuery<ChannelTestChannelResult | null>({
+        queryKey: ['channels', 'test', 'result', channelID],
+        queryFn: async () => {
+            try {
+                return await apiClient.get<ChannelTestChannelResult>(
+                    `/api/v1/channel/test/results/${channelID}`,
+                );
+            } catch (err) {
+                // 404 means "no result yet" — treat as null instead of bubbling
+                // the error up so the UI can render an empty state cleanly.
+                if (err && typeof err === 'object' && 'code' in err && err.code === 404) {
+                    return null;
+                }
+                throw err;
+            }
+        },
+        enabled,
+        refetchInterval: 5000,
+        refetchOnWindowFocus: false,
+    });
+}
+
+/**
+ * Kick off a channel test run. Optional `channel_ids` scopes the run to a
+ * subset; omit to test every enabled channel.
+ */
+export function useStartChannelTest() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (channelIDs?: number[]) =>
+            apiClient.post<ChannelTestRunStatus>(
+                '/api/v1/channel/test/start',
+                channelIDs && channelIDs.length > 0 ? { channel_ids: channelIDs } : undefined,
+            ),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['channels', 'test'] });
+        },
+        onError: (error) => {
+            logger.error('启动渠道测试失败:', error);
+        },
+    });
+}
+
+/**
+ * Cancel an in-progress run. No-op when nothing is running.
+ */
+export function useCancelChannelTest() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async () =>
+            apiClient.post<ChannelTestRunStatus>('/api/v1/channel/test/cancel'),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['channels', 'test'] });
         },
     });
 }

@@ -70,7 +70,8 @@
                 "channel": {
                     "all": "全部供應源",
                     "enabled": "僅啟用",
-                    "disabled": "僅停用"
+                    "disabled": "僅停用",
+                    "fundingIssue": "資金問題"
                 },
                 "group": {
                     "all": "全部分組",
@@ -181,6 +182,10 @@
             "maxCooldown": {
                 "label": "最大冷卻時間（秒）",
                 "placeholder": "請輸入最大冷卻時間"
+            },
+            "autoDisableRetryDays": {
+                "label": "自動停用後重試間隔（天）",
+                "placeholder": "請輸入天數"
             },
             "hint": "當渠道連續失敗達到閾值後觸發熔斷，冷卻時間按指數退避增長，上限為最大冷卻時間"
         },
@@ -353,6 +358,15 @@
             "submit": "建立",
             "submitting": "建立中..."
         },
+        "preset": {
+            "title": "編碼器預設",
+            "modelPlaceholder": "相容模型，例如 agentic-coder",
+            "create": "建立 Claude Code 和 Codex 分組",
+            "creating": "建立中...",
+            "hint": "建立 anthropic-claude-code 和 openai-codex 分組，並指向你選擇的相容模型。",
+            "success": "編碼器預設分組已建立",
+            "failed": "建立編碼器預設分組失敗"
+        },
         "card": {
             "empty": "暫無規則"
         },
@@ -388,7 +402,13 @@
             "failover": "故障轉移",
             "weighted": "加權分配"
         },
-        "empty": "暫無分組，點擊左上角按鈕建立"
+        "empty": "暫無分組，點擊左上角按鈕建立",
+        "createAgentic": {
+            "button": "建立代碼程式分組",
+            "creating": "建立中...",
+            "success": "代碼程式分組建立成功",
+            "failed": "建立代碼程式分組失敗"
+        }
     },
     "model": {
         "create": {
@@ -449,9 +469,18 @@
         }
     },
     "channel": {
+        "statusTag": {
+            "autoDisabled": "自動停用",
+            "insufficientFunds": "餘額不足",
+            "quotaExceeded": "配額用盡"
+        },
         "card": {
             "requestCount": "請求次數",
             "totalCost": "總成本",
+            "tag": {
+                "autoDisabled": "自動停用",
+                "billingIssue": "餘額/額度問題"
+            },
             "toast": {
                 "enabled": "供應源已啟用",
                 "disabled": "供應源已停用"
@@ -467,7 +496,8 @@
                 "tokens": "Token 使用",
                 "costs": "成本詳情",
                 "baseUrls": "Base URLs",
-                "keys": "金鑰"
+                "keys": "金鑰",
+                "modelTestResults": "模型測試結果"
             },
             "noBaseUrls": "暫無 Base URL",
             "noKeys": "暫無金鑰",
@@ -490,7 +520,16 @@
                 "saving": "儲存中...",
                 "delete": "刪除",
                 "confirmDelete": "確認刪除",
-                "deleting": "刪除中..."
+                "deleting": "刪除中...",
+                "checkModels": "檢查模型",
+                "checkingModels": "檢查中...",
+                "checkModelsSuccess": "已觸發模型檢查",
+                "testModel": "測試",
+                "testingModel": "測試中...",
+                "modelAvailable": "模型可用",
+                "modelUnavailable": "模型不可用",
+                "testAllModels": "測試模型",
+                "testingAllModels": "測試中..."
             }
         },
         "create": {
@@ -541,7 +580,38 @@
             "autoGroupRegex": "正規比對",
             "matchRegex": "匹配正規",
             "matchRegexPlaceholder": "可選：用於匹配請求模型名稱的正規表示式",
-            "remark": "備註"
+            "remark": "備註",
+            "duplicateError": "已存在使用相同 API 端點和金鑰的供應源",
+            "duplicateWarningTitle": "偵測到可能重複的供應源",
+            "dupMatchEndpointAndKey": "相同端點和金鑰",
+            "dupMatchEndpoint": "相同端點",
+            "dupMatchKey": "相同金鑰",
+            "autoDisableTitle": "自動停用",
+            "autoDisableHint": "覆蓋全域設定。留空使用全域預設值。",
+            "autoDisableThreshold": "失敗閾值",
+            "autoDisableThresholdPlaceholder": "全域預設",
+            "autoDisableRetryHours": "重試間隔（小時）",
+            "autoDisableRetryPlaceholder": "全域預設"
         }
+    },
+    "autoDisable": {
+        "title": "自動停用",
+        "threshold": {
+            "label": "失敗閾值（連續失敗次數）",
+            "placeholder": "輸入閾值"
+        },
+        "retryHours": {
+            "label": "重試間隔（小時）",
+            "placeholder": "輸入小時數"
+        },
+        "hint": "金鑰在連續失敗後自動停用。當供應源所有金鑰都被停用時，供應源自動停用，並在設定的時間後重試"
+    },
+    "modelCheck": {
+        "title": "模型可用性",
+        "interval": {
+            "label": "檢查間隔（小時）",
+            "placeholder": "輸入小時數"
+        },
+        "hint": "定期檢查自動同步供應源的模型列表是否最新"
     }
 }

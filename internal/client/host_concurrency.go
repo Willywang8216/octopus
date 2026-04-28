@@ -1,0 +1,278 @@
+package client
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
+	"os"
+	"strconv"
+	"strings"
+	"sync"
+)
+
+// OCTOPUS_HOST_CONCURRENCY_LIMITS limits in-flight upstream requests per host.
+//
+// Format:
+//   host=limit,host2=limit2
+// Examples:
+//   free.9e.nz=5
+//   free.9e.nz=5,api.openai.com=20
+//
+// Notes:
+// - Matching is done against req.URL.Hostname() (no port).
+// - Keys may include scheme/path; they will be normalized.
+// - Keys starting with '.' are treated as suffix matches (e.g. ".9e.nz" matches "free.9e.nz").
+const hostConcurrencyEnvKey = "OCTOPUS_HOST_CONCURRENCY_LIMITS"
+
+// OCTOPUS_HOST_CONCURRENCY_FAILFAST_HOSTS makes Octopus fail fast (skip/failover)
+// instead of waiting when a host is at its concurrency limit.
+//
+// Format: host,host2 (comma/newline/semicolon separated)
+// Examples:
+//   free.9e.nz
+//   free.9e.nz,.9e.nz
+const hostConcurrencyFailfastEnvKey = "OCTOPUS_HOST_CONCURRENCY_FAILFAST_HOSTS"
+
+var ErrHostConcurrencyLimitReached = errors.New("host concurrency limit reached")
+
+type HostConcurrencyLimitError struct {
+	Host  string
+	Limit int
+}
+
+func (e *HostConcurrencyLimitError) Error() string {
+	if e == nil {
+		return ErrHostConcurrencyLimitReached.Error()
+	}
+	if e.Host == "" || e.Limit <= 0 {
+		return ErrHostConcurrencyLimitReached.Error()
+	}
+	return fmt.Sprintf("%s: host=%s limit=%d", ErrHostConcurrencyLimitReached.Error(), e.Host, e.Limit)
+}
+
+func (e *HostConcurrencyLimitError) Unwrap() error { return ErrHostConcurrencyLimitReached }
+
+type hostConcurrencyLimiter struct {
+	mu sync.Mutex
+
+	raw         string
+	failfastRaw string
+
+	// exact host -> limit
+	exact map[string]int
+	// suffixes (including leading '.') -> limit
+	suffix map[string]int
+
+	failfastExact  map[string]struct{}
+	failfastSuffix map[string]struct{}
+
+	sems map[string]chan struct{} // host -> semaphore
+}
+
+func (l *hostConcurrencyLimiter) normalizeHostKey(key string) string {
+	s := strings.TrimSpace(strings.ToLower(key))
+	if s == "" {
+		return ""
+	}
+	if strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://") {
+		if u, err := url.Parse(s); err == nil {
+			if h := strings.ToLower(strings.TrimSpace(u.Hostname())); h != "" {
+				return h
+			}
+		}
+	}
+
+	// Support inputs like "free.9e.nz/v1".
+	if i := strings.IndexByte(s, '/'); i >= 0 {
+		s = s[:i]
+	}
+
+	// Best-effort parse for host:port.
+	if u, err := url.Parse("http://" + s); err == nil {
+		if h := strings.ToLower(strings.TrimSpace(u.Hostname())); h != "" {
+			return h
+		}
+	}
+	return s
+}
+
+func (l *hostConcurrencyLimiter) reloadFromEnvLocked() {
+	raw := strings.TrimSpace(os.Getenv(hostConcurrencyEnvKey))
+	failfastRaw := strings.TrimSpace(os.Getenv(hostConcurrencyFailfastEnvKey))
+	if raw == l.raw && failfastRaw == l.failfastRaw {
+		return
+	}
+
+	l.raw = raw
+	l.failfastRaw = failfastRaw
+
+	l.exact = make(map[string]int)
+	l.suffix = make(map[string]int)
+	l.failfastExact = make(map[string]struct{})
+	l.failfastSuffix = make(map[string]struct{})
+	l.sems = make(map[string]chan struct{})
+
+	if raw != "" {
+		parts := strings.FieldsFunc(raw, func(r rune) bool {
+			return r == ',' || r == '\n' || r == ';'
+		})
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			kv := strings.SplitN(p, "=", 2)
+			if len(kv) != 2 {
+				continue
+			}
+			k := strings.TrimSpace(kv[0])
+			v := strings.TrimSpace(kv[1])
+
+			limit, err := strconv.Atoi(v)
+			if err != nil || limit <= 0 {
+				continue
+			}
+
+			// Suffix match.
+			if strings.HasPrefix(strings.TrimSpace(k), ".") {
+				sfx := strings.ToLower(strings.TrimSpace(k))
+				if sfx == "." {
+					continue
+				}
+				l.suffix[sfx] = limit
+				continue
+			}
+
+			host := l.normalizeHostKey(k)
+			if host == "" {
+				continue
+			}
+			l.exact[host] = limit
+		}
+	}
+
+	if failfastRaw != "" {
+		parts := strings.FieldsFunc(failfastRaw, func(r rune) bool {
+			return r == ',' || r == '\n' || r == ';'
+		})
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+
+			if strings.HasPrefix(p, ".") {
+				l.failfastSuffix[strings.ToLower(p)] = struct{}{}
+				continue
+			}
+
+			host := l.normalizeHostKey(p)
+			if host == "" {
+				continue
+			}
+			l.failfastExact[host] = struct{}{}
+		}
+	}
+}
+
+func (l *hostConcurrencyLimiter) limitForHostLocked(host string) (int, bool) {
+	if host == "" {
+		return 0, false
+	}
+	if n, ok := l.exact[host]; ok {
+		return n, true
+	}
+	for sfx, n := range l.suffix {
+		needle := strings.TrimPrefix(sfx, ".")
+		if needle == "" {
+			continue
+		}
+		if host == needle || strings.HasSuffix(host, "."+needle) {
+			return n, true
+		}
+	}
+	return 0, false
+}
+
+func (l *hostConcurrencyLimiter) isFailFastLocked(host string) bool {
+	if host == "" {
+		return false
+	}
+	if _, ok := l.failfastExact[host]; ok {
+		return true
+	}
+	for sfx := range l.failfastSuffix {
+		needle := strings.TrimPrefix(sfx, ".")
+		if needle == "" {
+			continue
+		}
+		if host == needle || strings.HasSuffix(host, "."+needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func (l *hostConcurrencyLimiter) acquire(ctx context.Context, host string) (func(), error) {
+	l.mu.Lock()
+	l.reloadFromEnvLocked()
+	limit, ok := l.limitForHostLocked(host)
+	if !ok {
+		l.mu.Unlock()
+		return func() {}, nil
+	}
+	failFast := l.isFailFastLocked(host)
+
+	sem := l.sems[host]
+	if sem == nil || cap(sem) != limit {
+		sem = make(chan struct{}, limit)
+		l.sems[host] = sem
+	}
+	l.mu.Unlock()
+
+	if failFast {
+		select {
+		case sem <- struct{}{}:
+			return func() { <-sem }, nil
+		default:
+			return nil, &HostConcurrencyLimitError{Host: host, Limit: limit}
+		}
+	}
+
+	select {
+	case sem <- struct{}{}:
+		return func() { <-sem }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+var defaultHostConcurrencyLimiter = &hostConcurrencyLimiter{}
+
+type hostConcurrencyRoundTripper struct {
+	base http.RoundTripper
+}
+
+func (t *hostConcurrencyRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req == nil || req.URL == nil {
+		return t.base.RoundTrip(req)
+	}
+
+	host := strings.ToLower(strings.TrimSpace(req.URL.Hostname()))
+	release, err := defaultHostConcurrencyLimiter.acquire(req.Context(), host)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
+	return t.base.RoundTrip(req)
+}
+
+func wrapWithHostConcurrencyLimit(base http.RoundTripper) http.RoundTripper {
+	if base == nil {
+		return nil
+	}
+	return &hostConcurrencyRoundTripper{base: base}
+}

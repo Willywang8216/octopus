@@ -4,22 +4,55 @@ import {
     MorphingDialogContainer,
     MorphingDialogContent,
 } from '@/components/ui/morphing-dialog';
-import { CheckCircle2, DollarSign, Key, Layers, MessageSquare, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, DollarSign, Key, Layers, MessageSquare, XCircle } from 'lucide-react';
 import { type StatsMetricsFormatted } from '@/api/endpoints/stats';
 import { type Channel, useEnableChannel } from '@/api/endpoints/channel';
 import { CardContent } from './CardContent';
+import { TestBadge } from './TestBadge';
 import { useTranslations } from 'next-intl';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/animate-ui/components/animate/tooltip';
 import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
 import { toast } from '@/components/common/Toast';
+import { Badge } from '@/components/ui/badge';
 
 export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; stats: StatsMetricsFormatted; layout?: 'grid' | 'list' }) {
     const t = useTranslations('channel.card');
     const tForm = useTranslations('channel.form');
     const tSections = useTranslations('channel.detail.sections');
     const tMetrics = useTranslations('channel.detail.metrics');
+    const tTag = useTranslations('channel.statusTag');
     const enableChannel = useEnableChannel();
     const isListLayout = layout === 'list';
+
+    const statusTagBadge = (() => {
+        if (!channel.status_tag) return null;
+        switch (channel.status_tag) {
+            case 'auto_disabled':
+                return (
+                    <Badge variant="destructive" className="h-5 px-1.5 text-[10px] gap-1">
+                        <Ban className="size-3" />
+                        {tTag('autoDisabled')}
+                    </Badge>
+                );
+            case 'insufficient_funds':
+                return (
+                    <Badge className="h-5 px-1.5 text-[10px] gap-1 bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-500/30">
+                        <AlertTriangle className="size-3" />
+                        {tTag('insufficientFunds')}
+                    </Badge>
+                );
+            case 'quota_exceeded':
+                return (
+                    <Badge className="h-5 px-1.5 text-[10px] gap-1 bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-500/30">
+                        <AlertTriangle className="size-3" />
+                        {tTag('quotaExceeded')}
+                    </Badge>
+                );
+            default:
+                return null;
+        }
+    })();
 
     const splitModels = (models: string) =>
         models
@@ -32,6 +65,20 @@ export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; st
         ...splitModels(channel.custom_model),
     ]).size;
     const enabledKeyCount = channel.keys.filter((item) => item.enabled).length;
+    const hasBillingIssue = channel.tags.includes('billing_issue');
+    const isAutoDisabled = channel.tags.includes('auto_disabled');
+
+    const showStatus = (channel.enabled && enabledKeyCount === 0 && channel.keys.length > 0) || (!channel.enabled && channel.auto_disabled);
+    const statusSource = `${channel.disabled_reason ?? ''} ${channel.keys.map((k) => k.remark ?? '').join(' ')}`;
+    const hasNoMoney = showStatus && statusSource.includes('category=no_money');
+    const hasBadGateway = showStatus && statusSource.includes('category=bad_gateway');
+    const statusLabel = hasNoMoney
+        ? t('status.noMoney')
+        : hasBadGateway
+            ? t('status.badGateway')
+            : showStatus
+                ? t('status.autoDisabled')
+                : '';
 
     const handleEnableChange = (checked: boolean) => {
         enableChannel.mutate(
@@ -52,12 +99,15 @@ export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; st
             <MorphingDialogTrigger className="w-full">
                 <article className="flex flex-col gap-4 rounded-3xl border border-border bg-card text-card-foreground p-4 transition-all duration-300">
                     <header className="relative flex items-center justify-between gap-2">
-                        <Tooltip side="top" sideOffset={10} align="center">
-                            <TooltipTrigger asChild>
-                                <h3 className="text-lg font-bold truncate min-w-0">{channel.name}</h3>
-                            </TooltipTrigger>
-                            <TooltipContent key={channel.name}>{channel.name}</TooltipContent>
-                        </Tooltip>
+                        <div className="flex min-w-0 flex-1 items-center gap-2">
+                            <Tooltip side="top" sideOffset={10} align="center">
+                                <TooltipTrigger asChild>
+                                    <h3 className="text-lg font-bold truncate min-w-0">{channel.name}</h3>
+                                </TooltipTrigger>
+                                <TooltipContent key={channel.name}>{channel.name}</TooltipContent>
+                            </Tooltip>
+                            <TestBadge channelID={channel.id} />
+                        </div>
                         <Switch
                             checked={channel.enabled}
                             onCheckedChange={handleEnableChange}
@@ -65,6 +115,23 @@ export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; st
                             onClick={(e) => e.stopPropagation()}
                         />
                     </header>
+
+                    {(hasBillingIssue || isAutoDisabled) && (
+                        <div className="flex flex-wrap gap-2">
+                            {isAutoDisabled && (
+                                <Badge variant="secondary" className="bg-orange-500/15 text-orange-700 dark:text-orange-400">
+                                    <AlertTriangle className="mr-1 size-3" />
+                                    {t('tag.autoDisabled')}
+                                </Badge>
+                            )}
+                            {hasBillingIssue && (
+                                <Badge variant="secondary" className="bg-red-500/15 text-red-700 dark:text-red-400">
+                                    <DollarSign className="mr-1 size-3" />
+                                    {t('tag.billingIssue')}
+                                </Badge>
+                            )}
+                        </div>
+                    )}
 
                     {isListLayout ? (
                         <dl className="grid grid-cols-2 gap-2 lg:grid-cols-6">

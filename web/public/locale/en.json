@@ -70,7 +70,8 @@
                 "channel": {
                     "all": "All channels",
                     "enabled": "Enabled only",
-                    "disabled": "Disabled only"
+                    "disabled": "Disabled only",
+                    "fundingIssue": "Funding issues"
                 },
                 "group": {
                     "all": "All groups",
@@ -181,6 +182,10 @@
             "maxCooldown": {
                 "label": "Max Cooldown (seconds)",
                 "placeholder": "Enter max cooldown in seconds"
+            },
+            "autoDisableRetryDays": {
+                "label": "Auto-disabled retry interval (days)",
+                "placeholder": "Enter days"
             },
             "hint": "When a channel fails consecutively up to the threshold, circuit breaker trips. Cooldown grows exponentially up to the max cooldown"
         },
@@ -353,6 +358,15 @@
             "submit": "Create",
             "submitting": "Creating..."
         },
+        "preset": {
+            "title": "Coder presets",
+            "modelPlaceholder": "Compatible model, e.g. agentic-coder",
+            "create": "Create Claude Code and Codex groups",
+            "creating": "Creating...",
+            "hint": "Creates anthropic-claude-code and openai-codex groups pointing to the compatible model you choose.",
+            "success": "Coder preset groups created",
+            "failed": "Failed to create coder preset groups"
+        },
         "card": {
             "empty": "No rules"
         },
@@ -388,7 +402,13 @@
             "failover": "Failover",
             "weighted": "Weighted"
         },
-        "empty": "No groups yet, click the button above to create one"
+        "empty": "No groups yet, click the button above to create one",
+        "createAgentic": {
+            "button": "Create Agentic Groups",
+            "creating": "Creating...",
+            "success": "Agentic coding groups created",
+            "failed": "Failed to create agentic groups"
+        }
     },
     "model": {
         "create": {
@@ -449,9 +469,18 @@
         }
     },
     "channel": {
+        "statusTag": {
+            "autoDisabled": "Auto Disabled",
+            "insufficientFunds": "No Funds",
+            "quotaExceeded": "Quota Exceeded"
+        },
         "card": {
             "requestCount": "Requests",
             "totalCost": "Total Cost",
+            "tag": {
+                "autoDisabled": "Auto disabled",
+                "billingIssue": "Billing/quota issue"
+            },
             "toast": {
                 "enabled": "Channel enabled",
                 "disabled": "Channel disabled"
@@ -467,7 +496,8 @@
                 "tokens": "Token Usage",
                 "costs": "Cost Details",
                 "baseUrls": "Base URLs",
-                "keys": "Keys"
+                "keys": "Keys",
+                "modelTestResults": "Model Test Results"
             },
             "noBaseUrls": "No Base URLs",
             "noKeys": "No Keys",
@@ -490,7 +520,16 @@
                 "saving": "Saving...",
                 "delete": "Delete",
                 "confirmDelete": "Confirm Delete",
-                "deleting": "Deleting..."
+                "deleting": "Deleting...",
+                "checkModels": "Check Models",
+                "checkingModels": "Checking...",
+                "checkModelsSuccess": "Model check triggered",
+                "testModel": "Test",
+                "testingModel": "Testing...",
+                "modelAvailable": "Model is available",
+                "modelUnavailable": "Model is unavailable",
+                "testAllModels": "Test Models",
+                "testingAllModels": "Testing..."
             }
         },
         "create": {
@@ -541,7 +580,38 @@
             "autoGroupRegex": "Regex",
             "matchRegex": "Match Regex",
             "matchRegexPlaceholder": "Optional: regex pattern to match request model names",
-            "remark": "Remark"
+            "remark": "Remark",
+            "duplicateError": "A channel with the same API endpoint and key already exists",
+            "duplicateWarningTitle": "Possible duplicate channels detected",
+            "dupMatchEndpointAndKey": "same endpoint and key",
+            "dupMatchEndpoint": "same endpoint",
+            "dupMatchKey": "same key",
+            "autoDisableTitle": "Auto Disable",
+            "autoDisableHint": "Override global settings for this channel. Leave empty to use global defaults.",
+            "autoDisableThreshold": "Failure threshold",
+            "autoDisableThresholdPlaceholder": "Global default",
+            "autoDisableRetryHours": "Retry after (hours)",
+            "autoDisableRetryPlaceholder": "Global default"
         }
+    },
+    "autoDisable": {
+        "title": "Auto Disable",
+        "threshold": {
+            "label": "Failure Threshold (consecutive failures to disable key)",
+            "placeholder": "Enter threshold"
+        },
+        "retryHours": {
+            "label": "Retry After (hours)",
+            "placeholder": "Enter hours"
+        },
+        "hint": "Keys are auto-disabled after consecutive failures. When all keys in a channel are disabled, the channel is auto-disabled and retried after the configured period"
+    },
+    "modelCheck": {
+        "title": "Model Availability",
+        "interval": {
+            "label": "Check Interval (hours)",
+            "placeholder": "Enter hours"
+        },
+        "hint": "Periodically checks if the model list for each auto-sync channel is up to date"
     }
 }
