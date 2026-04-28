@@ -33,6 +33,10 @@ func init() {
 		AddRoute(
 			router.NewRoute("/status", http.MethodGet).
 				Handle(status),
+		).
+		AddRoute(
+			router.NewRoute("/rotate-jwt-secret", http.MethodPost).
+				Handle(rotateJWTSecret),
 		)
 }
 
@@ -82,4 +86,15 @@ func changeUsername(c *gin.Context) {
 
 func status(c *gin.Context) {
 	resp.Success(c, "ok")
+}
+
+// rotateJWTSecret invalidates every previously issued JWT by replacing the
+// signing secret with a freshly generated value. The caller's current token
+// becomes invalid as well, so a fresh login is required afterwards.
+func rotateJWTSecret(c *gin.Context) {
+	if err := op.RotateJWTSecret(); err != nil {
+		resp.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	resp.Success(c, "jwt secret rotated")
 }

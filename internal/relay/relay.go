@@ -22,6 +22,13 @@ import (
 	"github.com/tmaxmax/go-sse"
 )
 
+// nonStreamAttemptTimeout caps the wall time of a single non-streaming relay
+// attempt. If exceeded, the iterator advances to the next channel. Streaming
+// requests are NOT bounded by this timeout — they rely on group.FirstTokenTimeOut
+// for first-token detection and the underlying transport's ResponseHeaderTimeout
+// for connection-level health.
+const nonStreamAttemptTimeout = 90 * time.Second
+
 // Handler 处理入站请求并转发到上游服务
 func Handler(inboundType inbound.InboundType, c *gin.Context) {
 	// 解析请求
@@ -95,7 +102,8 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 			continue
 		}
 
-		usedKey := channel.GetChannelKey()
+		// 粘性命中时优先沿用上次成功的 key，确保 (channel, key) 元组对会话保持有意义。
+		usedKey := channel.GetChannelKeyByID(iter.StickyKeyID())
 		if usedKey.ChannelKey == "" {
 			iter.Skip(channel.ID, 0, channel.Name, "no available key")
 			continue
@@ -116,6 +124,10 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 		// 类型兼容性检查
 		if internalRequest.IsEmbeddingRequest() && !outbound.IsEmbeddingChannelType(channel.Type) {
 			iter.Skip(channel.ID, usedKey.ID, channel.Name, "channel type not compatible with embedding request")
+			continue
+		}
+		if internalRequest.IsRerankRequest() && !outbound.IsRerankChannelType(channel.Type) {
+			iter.Skip(channel.ID, usedKey.ID, channel.Name, "channel type not compatible with rerank request")
 			continue
 		}
 		if internalRequest.IsChatRequest() && !outbound.IsChatChannelType(channel.Type) {
@@ -222,6 +234,11 @@ func parseRequest(inboundType inbound.InboundType, c *gin.Context) (*model.Inter
 	}
 
 	inAdapter := inbound.Get(inboundType)
+	if inAdapter == nil {
+		err := fmt.Errorf("unsupported inbound type: %d", inboundType)
+		resp.Error(c, http.StatusInternalServerError, err.Error())
+		return nil, nil, err
+	}
 	internalRequest, err := inAdapter.TransformRequest(c.Request.Context(), body)
 	if err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
@@ -242,6 +259,15 @@ func parseRequest(inboundType inbound.InboundType, c *gin.Context) (*model.Inter
 // forward 转发请求到上游服务
 func (ra *relayAttempt) forward() (int, error) {
 	ctx := ra.c.Request.Context()
+
+	// Cap non-streaming attempts so a hung upstream can't pin the request.
+	// Streaming uses the first-token timeout from group config instead.
+	isStream := ra.internalRequest.Stream != nil && *ra.internalRequest.Stream
+	if !isStream {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, nonStreamAttemptTimeout)
+		defer cancel()
+	}
 
 	// 构建出站请求
 	outboundRequest, err := ra.outAdapter.TransformRequest(

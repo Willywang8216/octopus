@@ -122,24 +122,47 @@ func (c *Channel) GetBaseUrl() string {
 }
 
 func (c *Channel) GetChannelKey() ChannelKey {
+	return c.getChannelKey(0)
+}
+
+// GetChannelKeyByID 优先返回指定 ID 的 key（用于会话保持），仅当该 key
+// 仍可用（启用、非空、未在 429 冷却）时生效；否则回退到默认选择。
+func (c *Channel) GetChannelKeyByID(preferredID int) ChannelKey {
+	return c.getChannelKey(preferredID)
+}
+
+func (c *Channel) getChannelKey(preferredID int) ChannelKey {
 	if c == nil || len(c.Keys) == 0 {
 		return ChannelKey{}
 	}
 
 	nowSec := time.Now().Unix()
+	keyHealthy := func(k ChannelKey) bool {
+		if !k.Enabled || k.ChannelKey == "" {
+			return false
+		}
+		if k.StatusCode == 429 && k.LastUseTimeStamp > 0 {
+			if nowSec-k.LastUseTimeStamp < int64(5*time.Minute/time.Second) {
+				return false
+			}
+		}
+		return true
+	}
+
+	if preferredID > 0 {
+		for _, k := range c.Keys {
+			if k.ID == preferredID && keyHealthy(k) {
+				return k
+			}
+		}
+	}
 
 	best := ChannelKey{}
 	bestCost := 0.0
 	bestSet := false
-
 	for _, k := range c.Keys {
-		if !k.Enabled || k.ChannelKey == "" {
+		if !keyHealthy(k) {
 			continue
-		}
-		if k.StatusCode == 429 && k.LastUseTimeStamp > 0 {
-			if nowSec-k.LastUseTimeStamp < int64(5*time.Minute/time.Second) {
-				continue
-			}
 		}
 		if !bestSet || k.TotalCost < bestCost {
 			best = k

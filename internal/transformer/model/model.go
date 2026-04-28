@@ -17,6 +17,7 @@ const (
 	APIFormatOpenAIResponse        APIFormat = "openai/responses"
 	APIFormatOpenAIImageGeneration APIFormat = "openai/image_generation"
 	APIFormatOpenAIEmbedding       APIFormat = "openai/embeddings"
+	APIFormatOpenAIRerank          APIFormat = "openai/rerank"
 	APIFormatGeminiContents        APIFormat = "gemini/contents"
 	APIFormatAnthropicMessage      APIFormat = "anthropic/messages"
 	APIFormatAiSDKText             APIFormat = "aisdk/text"
@@ -42,6 +43,15 @@ type InternalLLMRequest struct {
 	// EmbeddingEncodingFormat is the format of the embedding output.
 	// Can be "float" or "base64". Defaults to "float".
 	EmbeddingEncodingFormat *string `json:"embedding_encoding_format,omitempty"`
+
+	// Rerank API 参数（与 Messages、EmbeddingInput 互斥）
+	// RerankInput 携带 query + documents 的成对输入。Cohere/Jina/Voyage/BGE
+	// 等主流 reranker 共享该形状。
+	RerankInput *RerankInput `json:"rerank_input,omitempty"`
+	// RerankTopN 限制返回的最高分文档数量，nil 表示返回全部。
+	RerankTopN *int64 `json:"rerank_top_n,omitempty"`
+	// RerankReturnDocuments 控制响应是否回显原始文档文本。nil 时由具体厂商默认值决定。
+	RerankReturnDocuments *bool `json:"rerank_return_documents,omitempty"`
 
 	// Model is the model ID used to generate the response.
 	Model string `json:"model" validator:"required"`
@@ -253,33 +263,44 @@ func (r *InternalLLMRequest) Validate() error {
 		return errors.New("model is required")
 	}
 
-	// 检查是否是 embedding 请求
 	isEmbeddingRequest := r.EmbeddingInput != nil
 	isChatRequest := len(r.Messages) > 0
+	isRerankRequest := r.RerankInput != nil
 
-	if isEmbeddingRequest && isChatRequest {
-		return errors.New("cannot specify both messages and input")
+	requestKinds := 0
+	if isEmbeddingRequest {
+		requestKinds++
+	}
+	if isChatRequest {
+		requestKinds++
+	}
+	if isRerankRequest {
+		requestKinds++
+	}
+	if requestKinds > 1 {
+		return errors.New("messages, embedding_input and rerank_input are mutually exclusive")
+	}
+	if requestKinds == 0 {
+		return errors.New("one of messages, embedding_input, rerank_input is required")
 	}
 
-	if !isEmbeddingRequest && !isChatRequest {
-		return errors.New("either messages or input is required")
-	}
-
-	// 验证 embedding 请求
 	if isEmbeddingRequest {
 		if r.EmbeddingInput.Single == nil && len(r.EmbeddingInput.Multiple) == 0 {
 			return errors.New("input cannot be empty")
 		}
 	}
 
-	// 验证 chat 请求
-	if isChatRequest && len(r.Messages) == 0 {
-		return errors.New("messages are required")
+	if isRerankRequest {
+		if strings.TrimSpace(r.RerankInput.Query) == "" {
+			return errors.New("rerank query cannot be empty")
+		}
+		if len(r.RerankInput.Documents) == 0 {
+			return errors.New("rerank documents cannot be empty")
+		}
 	}
 
 	if isChatRequest {
 		r.fillMissingToolCallIDsFromToolMessages()
-		// r.fillMissingToolCallIDs()
 	}
 
 	return nil
@@ -381,6 +402,11 @@ func (r *InternalLLMRequest) IsEmbeddingRequest() bool {
 // IsChatRequest returns true if this is a chat completion request.
 func (r *InternalLLMRequest) IsChatRequest() bool {
 	return len(r.Messages) > 0
+}
+
+// IsRerankRequest returns true if this is a rerank request.
+func (r *InternalLLMRequest) IsRerankRequest() bool {
+	return r.RerankInput != nil
 }
 
 func (r *InternalLLMRequest) ClearHelpFields() {
@@ -638,6 +664,9 @@ type InternalLLMResponse struct {
 	// For chat completion responses, this field should be empty.
 	EmbeddingData []EmbeddingObject `json:"embedding_data,omitempty"`
 
+	// Rerank API 响应（与 Choices/EmbeddingData 互斥）
+	RerankResults []RerankResult `json:"rerank_results,omitempty"`
+
 	// Object is the type of the response.
 	// e.g. "chat.completion", "chat.completion.chunk", "list"
 	Object string `json:"object"`
@@ -689,6 +718,11 @@ func (r *InternalLLMResponse) IsEmbeddingResponse() bool {
 // IsChatResponse returns true if this is a chat completion response.
 func (r *InternalLLMResponse) IsChatResponse() bool {
 	return len(r.Choices) > 0
+}
+
+// IsRerankResponse returns true if this is a rerank response.
+func (r *InternalLLMResponse) IsRerankResponse() bool {
+	return len(r.RerankResults) > 0
 }
 
 // Choice represents a choice in the response.
@@ -1025,6 +1059,69 @@ type EmbeddingObject struct {
 	Index int `json:"index"`
 	// The embedding vector.
 	Embedding Embedding `json:"embedding"`
+}
+
+// RerankInput carries the query plus the candidate documents to score.
+// Documents may be provided as raw strings or as opaque objects (Cohere
+// allows {text, metadata}); we keep them as decoded JSON values to stay
+// permissive and pass through whatever the upstream accepts.
+type RerankInput struct {
+	Query     string         `json:"query"`
+	Documents []RerankDoc    `json:"documents"`
+	// Extra keeps provider-specific knobs intact end-to-end (e.g. Cohere
+	// "rank_fields"). Marshalled inline by the outbound transformer.
+	Extra map[string]any `json:"extra,omitempty"`
+}
+
+// RerankDoc represents a single rerank document. Either the plain string
+// form or a structured form with a "text" field is accepted. The outbound
+// transformer re-marshals it in the same shape it was received so providers
+// that support metadata fields keep working.
+type RerankDoc struct {
+	Text string         `json:"text,omitempty"`
+	Raw  map[string]any `json:"raw,omitempty"`
+}
+
+func (d RerankDoc) MarshalJSON() ([]byte, error) {
+	if len(d.Raw) > 0 {
+		if _, ok := d.Raw["text"]; !ok && d.Text != "" {
+			merged := make(map[string]any, len(d.Raw)+1)
+			for k, v := range d.Raw {
+				merged[k] = v
+			}
+			merged["text"] = d.Text
+			return json.Marshal(merged)
+		}
+		return json.Marshal(d.Raw)
+	}
+	return json.Marshal(d.Text)
+}
+
+func (d *RerankDoc) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		d.Text = s
+		return nil
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(data, &obj); err == nil {
+		d.Raw = obj
+		if t, ok := obj["text"].(string); ok {
+			d.Text = t
+		}
+		return nil
+	}
+	return errors.New("invalid rerank document: expected string or object")
+}
+
+// RerankResult is one entry in a rerank response.
+// `Document` is optional and only populated when the request asked for the
+// document text to be echoed back. We keep it as a map so providers can
+// attach extra fields without us having to change the schema.
+type RerankResult struct {
+	Index          int            `json:"index"`
+	RelevanceScore float64        `json:"relevance_score"`
+	Document       map[string]any `json:"document,omitempty"`
 }
 
 // Embedding represents an embedding vector.
