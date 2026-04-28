@@ -45,159 +45,225 @@ DEFAULT_SESSION_KEEP_TIME = 0     # disabled
 #
 # `match_regex` is the inbound model-name regex that callers can hit to route
 # into this group (in addition to calling the group by its literal name).
+# Patterns are evaluated against the live (channel_id, model_name) inventory
+# discovered from existing groups + auto-sync. Lower priority = preferred.
+# Designed for the real multi-provider catalog: OpenAI/Anthropic/GLM/DeepSeek/
+# MiniMax/Qwen/Kimi/Doubao/Llama/Mistral/Grok/Gemini and friends.
+
+# Exclusion guard for chat-style groups so they don't accidentally pull in
+# code/vision/audio/embed/rerank/image-gen models.
+NOT_SPECIALIST = (
+    r"(?!.*(coder|-code|codestral|-vl-|qwen.*vl|llava|internvl|"
+    r"glm-[45]\.\d?v|glm-[45]v|glm-5v|"
+    r"omni|whisper|tts-1|gpt-(?:4o-mini-)?(?:tts|audio|realtime|transcribe)|"
+    r"asr|speech|sovits|cosyvoice|sensevoice|elevenlabs|polly|fish-speech|"
+    r"moss-tts|indextts|telespeech|"
+    r"flux|kolors|wan2|gpt-image|veo3|imagen|stable-diffusion|sdxl|"
+    r"midjourney|hidream|qwen-image|"
+    r"embed|rerank))"
+)
+
 TARGET_GROUPS: list[dict[str, Any]] = [
+    # ── Generation ────────────────────────────────────────────────────────
     {
         "name": "chat",
         "mode": MODE_FAILOVER,
         "match_regex": r"(?i)^chat$",
-        "purpose": "Default chat/instruct, balanced quality/latency.",
+        "purpose": "Default chat/instruct, balanced quality+latency. Mid-tier.",
         "members": [
-            (r"(?i)qwen3-30b-a3b-instruct-2507$", 10),
-            (r"(?i)qwen3-next-80b-a3b-instruct$", 20),
-            (r"(?i)qwen3\.5-35b-a3b$", 30),
-            (r"(?i)qwen3\.6-35b-a3b$", 30),
-            (r"(?i)qwen3-32b$", 40),
-            (r"(?i)qwen3\.5-27b$", 50),
+            # Strong mid-tier across providers, no thinking, no specialists
+            (rf"(?i)^{NOT_SPECIALIST}(?:claude-sonnet-4(?:[.-]\d)*|"
+             r"claude-haiku-4(?:[.-]\d)*|"
+             r"anthropic-sonnet-4|anthropic-haiku-4)(?:-\d{8})?$", 10),
+            (rf"(?i)^{NOT_SPECIALIST}gpt-5(?:[.-]\d+)?(?:-mini)?$", 15),
+            (rf"(?i)^{NOT_SPECIALIST}gpt-4\.1(?:-mini)?$", 20),
+            (rf"(?i)^{NOT_SPECIALIST}gpt-4o(?:-mini)?$", 25),
+            (rf"(?i)^{NOT_SPECIALIST}deepseek-v3(?:[.-]\d+)?(?:-fast)?$", 30),
+            (rf"(?i)^{NOT_SPECIALIST}glm-(?:4\.[567]|5)(?:-air|-flash)?$", 35),
+            (rf"(?i)^{NOT_SPECIALIST}qwen-(?:plus|max|turbo)-latest$", 40),
+            (rf"(?i)^{NOT_SPECIALIST}minimax-m2(?:\.\d+)?$", 45),
         ],
     },
     {
         "name": "chat-flagship",
         "mode": MODE_FAILOVER,
-        "match_regex": r"(?i)^chat-flagship$|(?i)(235b-a22b-instruct|397b-a17b|480b-a35b)",
-        "purpose": "Hardest tasks, highest quality.",
+        "match_regex": r"(?i)^chat-flagship$",
+        "purpose": "Hardest tasks, highest quality. Top-tier from each family.",
         "members": [
-            (r"(?i)qwen3-235b-a22b-instruct-2507$", 10),
-            (r"(?i)qwen3\.5-397b-a17b$", 20),
-            (r"(?i)qwen3\.5-122b-a10b$", 30),
-            (r"(?i)qwen3-next-80b-a3b-instruct$", 40),
+            (rf"(?i)^{NOT_SPECIALIST}claude-opus-4(?:[.-]\d+)*(?:-\d{{8}})?$", 10),
+            (rf"(?i)^{NOT_SPECIALIST}anthropic[-:/]claude-opus-4(?:[.-]\d+)*$", 12),
+            (rf"(?i)^{NOT_SPECIALIST}gpt-5(?:[.-]\d+)?(?:-pro|-thinking)?$", 15),
+            (rf"(?i)^{NOT_SPECIALIST}deepseek-v3\.[12](?:-terminus)?$", 20),
+            (rf"(?i)^{NOT_SPECIALIST}glm-(?:5(?:\.\d)?|4\.[67])(?:-deepsearch)?$", 25),
+            (rf"(?i)^{NOT_SPECIALIST}qwen3-235b-a22b(?:-2507)?(?:-instruct)?$", 30),
+            (rf"(?i)^{NOT_SPECIALIST}meta/llama-3\.1-405b.*$", 35),
+            (rf"(?i)^{NOT_SPECIALIST}mistralai/mistral-large.*$", 40),
         ],
     },
     {
         "name": "chat-fast",
         "mode": MODE_ROUND_ROBIN,
         "match_regex": r"(?i)^chat-fast$",
-        "purpose": "High-throughput / low-latency cheap tier.",
+        "purpose": "High-throughput, low-latency. Use for bulk classification, extraction, summarization.",
         "members": [
-            (r"(?i)qwen3-8b$", 10),
-            (r"(?i)qwen3-14b$", 10),
-            (r"(?i)qwen3\.5-9b$", 10),
-            (r"(?i)qwen3-30b-a3b-instruct-2507$", 20),
+            (rf"(?i)^{NOT_SPECIALIST}gpt-5\.\d+-mini$", 10),
+            (rf"(?i)^{NOT_SPECIALIST}gpt-5-nano$", 10),
+            (rf"(?i)^{NOT_SPECIALIST}gpt-4o-mini$", 10),
+            (rf"(?i)^{NOT_SPECIALIST}claude-haiku-4(?:[.-]\d+)*$", 10),
+            (rf"(?i)^{NOT_SPECIALIST}glm-(?:4\.[567]|5)-(?:air|flash)$", 10),
+            (rf"(?i)^{NOT_SPECIALIST}qwen-turbo-latest$", 10),
+            (rf"(?i)^{NOT_SPECIALIST}deepseek-v3(?:[.-]\d+)?-fast$", 10),
+            (rf"(?i)^{NOT_SPECIALIST}longcat-flash(?!-thinking)$", 15),
+            (rf"(?i)^{NOT_SPECIALIST}cerebras[-/]gpt-oss-120b$", 15),
+            (rf"(?i)^{NOT_SPECIALIST}gpt-oss-120b$", 15),
         ],
     },
     {
         "name": "code",
         "mode": MODE_FAILOVER,
-        "match_regex": r"(?i)^code$|(?i)coder",
-        "purpose": "Coding and agentic coding.",
+        "match_regex": r"(?i)^code$",
+        "purpose": "Coding and agentic coding (Cline, Aider, Cursor).",
         "members": [
-            (r"(?i)qwen3-coder-480b-a35b-instruct$", 10),
-            (r"(?i)qwen3-coder-30b-a3b-instruct$", 20),
-            (r"(?i)qwen2\.5-coder-32b-instruct$", 30),
+            (r"(?i)^claude-opus-4(?:[.-]\d+)*(?:-\d{8})?(?!-thinking)$", 10),
+            (r"(?i)^anthropic[-:/]claude-opus-4(?:[.-]\d+)*$", 11),
+            (r"(?i)^claude-sonnet-4(?:[.-]\d+)*(?:-\d{8})?(?!-thinking)$", 15),
+            (r"(?i)^gpt-5(?:\.\d+)?-codex(?:-(?:high|medium|low|mini|fast|auto))*$", 20),
+            (r"(?i)^gpt-5\.\d+-codex$", 20),
+            (r"(?i)^deepseek-v3(?:[.-]\d+)?(?:-0324|-1|-1-250821)?(?!-thinking)$", 25),
+            (r"(?i)^qwen3-coder(?:-flash|-plus)?(?:-\d{4}-\d{2}-\d{2})?$", 30),
+            (r"(?i)^alibaba/qwen3-coder-(?:flash|plus)-\d{4}-\d{2}-\d{2}$", 30),
+            (r"(?i)^Qwen/Qwen3-Coder-.*-Instruct$", 30),
+            (r"(?i)^codestral.*$", 35),
+            (r"(?i)^doubao-seed-code-.*$", 40),
+            (r"(?i)^cerebras[-/]?gpt-oss-120b$", 45),
         ],
     },
     {
         "name": "reason",
         "mode": MODE_FAILOVER,
-        "match_regex": r"(?i)^reason$|(?i)(thinking|qwq)",
-        "purpose": "Explicit chain-of-thought / thinking mode.",
+        "match_regex": r"(?i)^reason$",
+        "purpose": "Explicit chain-of-thought / extended thinking. Use for math, planning, deep analysis.",
         "members": [
-            (r"(?i)qwen3-235b-a22b-thinking-2507$", 10),
-            (r"(?i)qwen3-next-80b-a3b-thinking$", 20),
-            (r"(?i)qwen3-30b-a3b-thinking-2507$", 30),
-            (r"(?i)qwq-32b$", 40),
+            (r"(?i)^o[134](?:-(?:mini|preview|pro))?(?:-\d{4}-\d{2}-\d{2})?$", 10),
+            (r"(?i)^gpt-5-(?:thinking|reasoning|pro)$", 12),
+            (r"(?i)^claude-opus-4(?:[.-]\d+)*-thinking$", 15),
+            (r"(?i)^anthropic[-:/]claude-opus-4(?:[.-]\d+)*[-:]thinking$", 16),
+            (r"(?i)^claude-sonnet-4(?:[.-]\d+)*-thinking$", 20),
+            (r"(?i)^claude-3[.-]7-sonnet(?:-\d{8})?-thinking$", 22),
+            (r"(?i)^deepseek-r1(?:-\d+)?(?:-distill.*)?$", 25),
+            (r"(?i)^deepseek-v3(?:[.-]\d+)?-thinking$", 27),
+            (r"(?i)^glm-(?:[45](?:\.\d)?|5(?:\.\d)?-turbo)-(?:.*-)?thinking(?:-search)?$", 30),
+            (r"(?i)^qwen3-235b-a22b(?:-2507)?-thinking$", 35),
+            (r"(?i)^Qwen/Qwen3-Next-80B-A3B-Thinking$", 36),
+            (r"(?i)^qwq-32b$", 40),
+            (r"(?i)^longcat-flash-thinking(?:-\d+)?$", 42),
+            (r"(?i)^kimi-k2(?:-instruct)?$", 45),
+            (r"(?i)^moonshotai/kimi-k2-instruct.*$", 45),
         ],
     },
+    # ── Multimodal ────────────────────────────────────────────────────────
     {
         "name": "vision",
         "mode": MODE_FAILOVER,
-        "match_regex": r"(?i)^vision$|(?i)qwen.*-vl-(?!embed)",
-        "purpose": "Image+text VL (no audio).",
+        "match_regex": r"(?i)^vision$",
+        "purpose": "Image understanding (no thinking). Use for OCR, visual QA, document analysis.",
         "members": [
-            (r"(?i)qwen3-vl-235b-a22b-instruct$", 10),
-            (r"(?i)qwen3-vl-32b-instruct$", 20),
-            (r"(?i)qwen3-vl-30b-a3b-instruct$", 30),
-            (r"(?i)qwen2\.5-vl-72b-instruct$", 40),
-            (r"(?i)qwen3-vl-8b-instruct$", 50),
+            (r"(?i)^claude-opus-4(?:[.-]\d+)*(?!-thinking)$", 10),
+            (r"(?i)^claude-sonnet-4(?:[.-]\d+)*(?!-thinking)$", 15),
+            (r"(?i)^gpt-5(?:[.-]\d+)?(?:-mini)?$", 20),
+            (r"(?i)^gpt-4o(?:-mini)?$", 25),
+            (r"(?i)^glm-(?:4\.[1-7]|5\.?\d?)v(?:-flash|-search)?(?!-thinking)$", 30),
+            (r"(?i)^zai-glm-4\.\dv-flash$", 32),
+            (r"(?i)^Qwen/Qwen3-VL-.*-Instruct$", 35),
+            (r"(?i)^qwen3-vl-.*-instruct$", 35),
+            (r"(?i)^Pro/Qwen/Qwen2\.5-VL-.*-Instruct$", 40),
+            (r"(?i)^gemini-.*-(?:flash|pro)(?:-vision)?(?:-\d+)?$", 45),
         ],
     },
     {
         "name": "vision-thinking",
         "mode": MODE_FAILOVER,
-        "match_regex": r"(?i)^vision-thinking$|(?i)qwen.*-vl-.*thinking",
-        "purpose": "VL with explicit reasoning.",
+        "match_regex": r"(?i)^vision-thinking$",
+        "purpose": "Image + extended reasoning. Use for complex visual reasoning, math from photos, diagram analysis.",
         "members": [
-            (r"(?i)qwen3-vl-32b-thinking$", 10),
-            (r"(?i)qwen3-vl-30b-a3b-thinking$", 20),
-            (r"(?i)qwen3-vl-8b-thinking$", 30),
+            (r"(?i)^glm-(?:4\.[1-7]|5\.?\d?)v(?:-flash|-search)?-thinking(?:-search)?$", 10),
+            (r"(?i)^GLM-4\.1V-Thinking-FlashX$", 12),
+            (r"(?i)^GLM-5V-Turbo-thinking$", 12),
+            (r"(?i)^qwen3-vl-.*-thinking$", 15),
+            (r"(?i)^Qwen/Qwen3-VL-.*-Thinking$", 15),
         ],
     },
     {
-        "name": "omni",
+        "name": "image-gen",
         "mode": MODE_FAILOVER,
-        "match_regex": r"(?i)^omni$|(?i)omni-30b",
-        "purpose": "Audio + vision + text unified.",
+        "match_regex": r"(?i)^image-gen$",
+        "purpose": "Text-to-image and image editing.",
         "members": [
-            (r"(?i)qwen3-omni-30b-a3b-instruct$", 10),
-            (r"(?i)qwen3-omni-30b-a3b-thinking$", 20),
-            (r"(?i)qwen3-omni-30b-a3b-captioner$", 30),
+            (r"(?i)^(?:Pro/)?black-forest-labs/FLUX\.1-(?:dev|pro|schnell)$", 10),
+            (r"(?i)^Kwai-Kolors/Kolors$", 15),
+            (r"(?i)^Qwen/Qwen-Image(?:-Edit(?:-\d+)?)?$", 20),
+            (r"(?i)^gpt-image(?:-1)?$", 25),
+            (r"(?i)^hidream.*$", 30),
+        ],
+    },
+    {
+        "name": "video-gen",
+        "mode": MODE_FAILOVER,
+        "match_regex": r"(?i)^video-gen$",
+        "purpose": "Text-to-video and image-to-video.",
+        "members": [
+            (r"(?i)^veo3(?:\.\d+)?(?:-(?:fast|pro|4k|frames|components))*(?:-\d+k)?$", 10),
+            (r"(?i)^Wan-AI/Wan2\.\d+-(?:I2V|T2V).*$", 15),
+            (r"(?i)^sora.*$", 20),
         ],
     },
     {
         "name": "audio",
         "mode": MODE_FAILOVER,
-        "match_regex": r"(?i)^audio$|(?i)(asr|tts|whisper|speech)",
-        "purpose": "ASR / TTS / speech. Falls back to omni.",
+        "match_regex": r"(?i)^audio$",
+        "purpose": "ASR (speech-to-text) and TTS (text-to-speech).",
         "members": [
-            (r"(?i)(asr|tts|whisper|speech)", 10),
-            (r"(?i)qwen3-omni-30b-a3b-instruct$", 90),
+            (r"(?i)^whisper(?:-1)?$", 10),
+            (r"(?i)^gpt-4o(?:-mini)?-(?:tts|transcribe|audio-preview|realtime-preview)(?:-\d{4}-\d{2}-\d{2})?$", 12),
+            (r"(?i)^gpt-(?:audio|realtime)-\d{4}-\d{2}-\d{2}$", 12),
+            (r"(?i)^tts-1(?:-hd)?(?:-\d{4})?$", 15),
+            (r"(?i)^qwen3-(?:tts-flash|asr)(?:-\d{4}-\d{2}-\d{2})?$", 20),
+            (r"(?i)^elevenlabs(?:[-_].+)?$", 25),
+            (r"(?i)^polly(?:[-_].+)?$", 30),
+            (r"(?i)^openai-audio$", 12),
+            (r"(?i)^fishaudio/fish-speech-.*$", 35),
+            (r"(?i)^FunAudioLLM/(?:CosyVoice|SenseVoice).*$", 40),
+            (r"(?i)^IndexTeam/IndexTTS-.*$", 45),
+            (r"(?i)^fnlp/MOSS-TTSD-.*$", 45),
+            (r"(?i)^RVC-Boss/GPT-SoVITS$", 50),
+            (r"(?i)^TeleAI/TeleSpeechASR$", 50),
         ],
     },
-    {
-        "name": "embed-qwen3",
-        "mode": MODE_ROUND_ROBIN,
-        "match_regex": r"(?i)^embed-qwen3$|(?i)qwen3.*embedding",
-        "purpose": "Ad-hoc Qwen3 embedding work (not DB-bound).",
-        "members": [
-            (r"(?i)qwen3-embedding-8b$", 10),
-            (r"(?i)qwen3-embedding-4b$", 10),
-            (r"(?i)qwen3-embedding-0\.6b$", 10),
-            (r"(?i)qwen3-vl-embedding-8b$", 20),
-        ],
-    },
-    {
-        "name": "embed-bge",
-        "mode": MODE_ROUND_ROBIN,
-        "match_regex": r"(?i)^embed-bge$|(?i)bge-(?!.*db)",
-        "purpose": "Ad-hoc BGE embedding work (not DB-bound).",
-        "members": [
-            (r"(?i)bge", 10),
-        ],
-    },
+    # ── RAG infrastructure ────────────────────────────────────────────────
     {
         "name": "rerank",
         "mode": MODE_ROUND_ROBIN,
-        "match_regex": r"(?i)^rerank$|(?i)rerank",
-        "purpose": "RAG reranker pool.",
+        "match_regex": r"(?i)^rerank$",
+        "purpose": "RAG reranker pool. Used after vector retrieval to re-score top-k.",
         "members": [
-            (r"(?i)qwen3-reranker-8b$", 10),
-            (r"(?i)qwen3-reranker-4b$", 10),
-            (r"(?i)qwen3-reranker-0\.6b$", 10),
-            (r"(?i)bce.*rerank|bge.*rerank", 20),
+            (r"(?i)^Qwen/Qwen3-Reranker-8B$", 10),
+            (r"(?i)^Qwen/Qwen3-Reranker-4B$", 10),
+            (r"(?i)^Qwen/Qwen3-Reranker-0\.6B$", 15),
+            # any future BCE/BGE rerankers picked up automatically:
+            (r"(?i)^.*[/-]bce.*rerank.*$", 20),
+            (r"(?i)^.*[/-]bge.*rerank.*$", 20),
         ],
     },
     {
-        "name": "legacy",
-        "mode": MODE_FAILOVER,
-        "match_regex": r"(?i)^legacy$|(?i)qwen1\.5",
-        "purpose": "Quarantine for qwen1.5 and pre-2507 originals. Backwards compat only.",
+        "name": "embed-adhoc",
+        "mode": MODE_ROUND_ROBIN,
+        "match_regex": r"(?i)^embed-adhoc$",
+        "purpose": "Ad-hoc embedding pool. NOT for vector-DB use — different calls may hit different model families. Use the Embeddings-DB-* groups for indexed data.",
         "members": [
-            (r"(?i)qwen1\.5-110b-chat$", 10),
-            (r"(?i)qwen1\.5-32b-chat$", 20),
-            (r"(?i)qwen1\.5-14b-chat$", 30),
-            (r"(?i)qwen1\.5-1\.8b-chat$", 40),
-            (r"(?i)qwen1\.5-0\.5b-chat$", 50),
-            (r"(?i)qwen3-235b-a22b$", 60),
-            (r"(?i)qwen3-30b-a3b$", 70),
+            (r"(?i)^Qwen/Qwen3-Embedding-(?:0\.6|4|8)B$", 10),
+            (r"(?i)^netease-youdao/bce-embedding-base_v1$", 10),
+            (r"(?i)^nvidia/(?:embed-qa-4|nv-embed.*|llama-3\.2-nemoretriever-.*embed.*)$", 15),
+            (r"(?i)^snowflake/arctic-embed-l$", 15),
         ],
     },
 ]
@@ -238,7 +304,7 @@ class Client:
     def _request(self, method: str, path: str, body: dict | None = None) -> Any:
         url = f"{self.base_url}{path}"
         data = None
-        headers = {"Content-Type": "application/json"}
+        headers = {"Content-Type": "application/json", "Accept": "application/json", "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"}
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         if body is not None:
@@ -276,30 +342,53 @@ class Client:
         return self._request("DELETE", f"/api/v1/group/delete/{group_id}")
 
 
-def build_model_index(channels: list[dict]) -> dict[str, list[int]]:
-    """Map model_name -> [channel_id, ...]. Channel shape is provider-dependent;
-    we look at common fields: `models`, `model_list`, `supported_models`."""
-    index: dict[str, list[int]] = {}
+def build_model_index(channels: list[dict], groups: list[dict]) -> dict[str, list[int]]:
+    """Map model_name -> [channel_id, ...] from the live inventory.
+
+    Octopus channels don't expose a model list directly (auto_sync discovers
+    models per channel at runtime). The reliable source of truth is the union
+    of every existing group's items, which encode (channel_id, model_name)
+    pairs that are known to work.
+
+    Also accepts hints from channels' `models`/`custom_model` fields if any
+    operator has filled them in, but doesn't depend on them."""
+    index: dict[str, set[int]] = {}
+
+    # Primary source: union of all group items.
+    for g in groups:
+        for it in g.get("items") or []:
+            cid = it.get("channel_id")
+            mn = it.get("model_name")
+            if cid is None or not mn:
+                continue
+            index.setdefault(mn, set()).add(int(cid))
+
+    # Secondary hint: explicit channel.model / channel.custom_model fields.
     for ch in channels:
         cid = ch.get("id") or ch.get("ID")
         if cid is None:
             continue
-        models = (
-            ch.get("models")
-            or ch.get("model_list")
-            or ch.get("supported_models")
-            or ch.get("Models")
-            or []
-        )
-        if isinstance(models, str):
-            models = [m.strip() for m in re.split(r"[,\s]+", models) if m.strip()]
-        for m in models:
-            if isinstance(m, dict):
-                m = m.get("name") or m.get("model") or ""
-            if not m:
+        for field in ("models", "model_list", "supported_models", "model", "custom_model"):
+            v = ch.get(field)
+            if not v:
                 continue
-            index.setdefault(m, []).append(int(cid))
-    return index
+            if isinstance(v, str):
+                names = [m.strip() for m in re.split(r"[,\s]+", v) if m.strip()]
+            elif isinstance(v, list):
+                names = []
+                for m in v:
+                    if isinstance(m, str):
+                        names.append(m)
+                    elif isinstance(m, dict):
+                        n = m.get("name") or m.get("model")
+                        if n:
+                            names.append(n)
+            else:
+                names = []
+            for n in names:
+                index.setdefault(n, set()).add(int(cid))
+
+    return {k: sorted(v) for k, v in index.items()}
 
 
 def discover_members(
@@ -431,7 +520,7 @@ def main() -> int:
 
     channels = client.channel_list()
     groups = client.group_list()
-    model_index = build_model_index(channels)
+    model_index = build_model_index(channels, groups)
     print(f"Discovered {len(channels)} channels, "
           f"{len(model_index)} unique models, "
           f"{len(groups)} existing groups.")

@@ -1,155 +1,175 @@
-# Octopus Group Taxonomy — Redesign Reference
+# Octopus Group Taxonomy
 
-This document is the single source of truth for the new group layout. The
-migration script `scripts/redesignGroups.py` converges the live system to
-match it.
+This is the live taxonomy after the 2026-04-28 redesign. Source of truth is
+`scripts/redesignGroups.py`; this doc is the human-readable reference.
 
-## How to run the migration
+## Quick reference: what to call
 
-```sh
-# Dry-run (default): prints diff, makes no changes.
-OCTOPUS_BASE_URL=https://llmapi.iamwillywang.com \
-OCTOPUS_USERNAME=<admin-user> \
-OCTOPUS_PASSWORD=<admin-pass> \
-python3 scripts/redesignGroups.py
+| If you want… | Use group |
+|---|---|
+| General chat / Q&A | `chat` |
+| Best possible quality, money no object | `chat-flagship` |
+| Bulk processing, classification, extraction, summarization | `chat-fast` |
+| Code generation, agentic coding (Cline, Aider, Cursor) | `code` |
+| Math, planning, deep reasoning | `reason` |
+| Image understanding (OCR, visual QA, document analysis) | `vision` |
+| Visual reasoning (diagrams, math from photos) | `vision-thinking` |
+| Text-to-image, image editing | `image-gen` |
+| Text-to-video, image-to-video | `video-gen` |
+| Speech-to-text (ASR) and text-to-speech (TTS) | `audio` |
+| Reranking RAG retrieval results | `rerank` *(see caveat below)* |
+| Ad-hoc embedding (one-off, NOT for stored vectors) | `embed-adhoc` |
+| **Embedding text for / querying your vector DB** | one of `Embeddings-DB-*` |
 
-# Apply: creates/updates the new groups. Old groups are NOT deleted yet.
-OCTOPUS_APPLY=1 OCTOPUS_BASE_URL=... OCTOPUS_USERNAME=... OCTOPUS_PASSWORD=... \
-python3 scripts/redesignGroups.py
+## Embeddings — the vector-DB rule
 
-# Final cutover: delete the retired old groups.
-OCTOPUS_APPLY=1 OCTOPUS_DELETE_OLD=1 OCTOPUS_BASE_URL=... \
-OCTOPUS_USERNAME=... OCTOPUS_PASSWORD=... \
-python3 scripts/redesignGroups.py
-```
+**Once data is embedded into a vector database with model X, every future
+query against that data must use exactly the same model X.** Different
+embedding models produce vectors in different spaces with different
+dimensionality and geometry — similarity scores between them are meaningless.
 
-The script is idempotent: it diffs current state against the target taxonomy
-defined in `TARGET_GROUPS` and only sends the deltas. Re-running is a no-op
-once everything is converged.
+The DB-bound groups encode this contract: each one routes to exactly one
+embedding model, so any caller using the group name gets vectors in the
+correct space.
 
-## Recommended rollout
-
-1. **Dry-run** — review the diff, sanity-check it matches your channel pool.
-2. **Apply (no delete)** — new groups appear alongside old. Test downstream.
-3. **Notify clients** — anyone using old names like `Agentic-Coder` should
-   migrate to the new capability-first names.
-4. **Apply with delete** — once you've confirmed nothing breaks, retire the
-   old groups.
-
-## Target taxonomy (15 groups, plus 3 DB-bound preserved verbatim)
-
-### Generation / chat
-
-| Name | Mode | Purpose | Preferred members (priority asc) |
+| Group | Model | Dimension | Use when |
 |---|---|---|---|
-| `chat` | Failover | Default chat/instruct, balanced quality+latency | qwen3-30b-a3b-instruct-2507 → qwen3-next-80b-a3b-instruct → qwen3.5-35b-a3b → qwen3.6-35b-a3b → qwen3-32b → qwen3.5-27b |
-| `chat-flagship` | Failover | Hardest tasks, highest quality | qwen3-235b-a22b-instruct-2507 → qwen3.5-397b-a17b → qwen3.5-122b-a10b → qwen3-next-80b-a3b-instruct |
-| `chat-fast` | RoundRobin | Throughput / low-latency cheap tier | qwen3-8b, qwen3-14b, qwen3.5-9b (round-robin) → qwen3-30b-a3b-instruct-2507 |
-| `code` | Failover | Coding & agentic coding | qwen3-coder-480b-a35b-instruct → qwen3-coder-30b-a3b-instruct → qwen2.5-coder-32b-instruct |
-| `reason` | Failover | Explicit chain-of-thought / thinking-mode | qwen3-235b-a22b-thinking-2507 → qwen3-next-80b-a3b-thinking → qwen3-30b-a3b-thinking-2507 → qwq-32b |
+| `Embeddings-DB-EN-BGE-Large` | `BAAI/bge-large-en-v1.5` | 1024 | English-only corpus |
+| `Embeddings-DB-ZH-BGE-Large` | `BAAI/bge-large-zh-v1.5` | 1024 | Chinese-only corpus |
+| `Embeddings-DB-MULTI-BGE-M3` | `BAAI/bge-m3` | 1024 (dense) | Mixed/multilingual, **default for new RAG** |
 
-### Multimodal
+**Recommended default for new vector-DB projects: `Embeddings-DB-MULTI-BGE-M3`.**
+BGE-M3 is the most capable BGE — supports 100+ languages, 8192-token context
+(vs. 512 for BGE-Large), dense + sparse + ColBERT retrieval modes, all in
+1024 dimensions. Future-proof for whatever data you throw at it.
 
-| Name | Mode | Purpose | Preferred members |
+**Never use `embed-adhoc` for stored vectors.** It round-robins across
+multiple embedding model families with different dimensions (Qwen3 is 4096,
+BCE is 768, NVIDIA NV-Embed is 4096, BGE is 1024). Two queries of the same
+text could land on different models and produce incompatible vectors. It's
+fine for one-off ad-hoc work or A/B testing only.
+
+### Known issue: BGE-Large EN/ZH groups currently 503
+
+Channels backing these two groups (channel 30, "21zys-embedding-split") are
+currently disabled in your account (last 19,185 requests failed before it was
+turned off). The groups exist with the correct model contract, but until you
+add a working channel that serves `BAAI/bge-large-en-v1.5` and
+`BAAI/bge-large-zh-v1.5`, calls return `503 no available channel`.
+`Embeddings-DB-MULTI-BGE-M3` works fine because it has 5 channels.
+
+## Full taxonomy (15 groups)
+
+### Generation (5)
+
+| Group | Mode | Items | Top picks |
 |---|---|---|---|
-| `vision` | Failover | Image+text VL (no audio) | qwen3-vl-235b-a22b-instruct → qwen3-vl-32b-instruct → qwen3-vl-30b-a3b-instruct → qwen2.5-vl-72b-instruct → qwen3-vl-8b-instruct |
-| `vision-thinking` | Failover | VL with explicit reasoning | qwen3-vl-32b-thinking → qwen3-vl-30b-a3b-thinking → qwen3-vl-8b-thinking |
-| `omni` | Failover | Audio + vision + text unified | qwen3-omni-30b-a3b-instruct → qwen3-omni-30b-a3b-thinking → qwen3-omni-30b-a3b-captioner |
-| `audio` | Failover | ASR / TTS / speech (falls back to omni) | dedicated audio channels first; qwen3-omni fallback at priority 90 |
+| `chat` | Failover | 247 | claude-sonnet-4.x, gpt-5.x, gpt-4.1, deepseek-v3.x, glm-5, qwen-plus, minimax-m2 |
+| `chat-flagship` | Failover | 195 | claude-opus-4.x, gpt-5-pro, deepseek-v3.2-terminus, glm-5, qwen3-235b |
+| `chat-fast` | RoundRobin | 59 | gpt-5.x-mini, gpt-5-nano, gpt-4o-mini, claude-haiku-4.x, glm-air, qwen-turbo, longcat-flash |
+| `code` | Failover | 256 | claude-opus-4.x, claude-sonnet-4.x, gpt-5-codex variants, deepseek-v3, qwen3-coder, codestral, doubao-seed-code |
+| `reason` | Failover | 165 | o1/o3/o4 family, gpt-5-thinking, claude-opus-thinking, deepseek-r1, glm-thinking, qwen3-thinking, qwq-32b, kimi-k2 |
 
-### Embeddings
+### Multimodal (4)
 
-DB-bound groups — names preserved verbatim because they back real vector
-indexes. Items are NOT modified by the script.
-
-| Name | Mode | Purpose |
-|---|---|---|
-| `Embeddings-DB-ZH-BGE-Large` | RoundRobin | ZH BGE-Large vector index |
-| `Embeddings-DB-EN-BGE-Large` | RoundRobin | EN BGE-Large vector index |
-| `Embeddings-DB-MULTI-BGE-M3` | RoundRobin | Multilingual BGE-M3 vector index |
-
-Family pools — for new ad-hoc work:
-
-| Name | Mode | Purpose | Members |
+| Group | Mode | Items | Top picks |
 |---|---|---|---|
-| `embed-qwen3` | RoundRobin | Qwen3 embeddings | qwen3-embedding-0.6b/4b/8b → qwen3-vl-embedding-8b |
-| `embed-bge` | RoundRobin | BGE embeddings (non-DB) | any non-DB BGE channels |
+| `vision` | Failover | 169 | claude-opus-4.x (native vision), gpt-5.x, gpt-4o, glm-v family, qwen3-vl-instruct, gemini-flash/pro |
+| `vision-thinking` | Failover | 11 | glm-v-thinking, qwen3-vl-thinking |
+| `image-gen` | Failover | 8 | FLUX.1 (dev/pro/schnell), Kolors, Qwen-Image (incl. Edit), gpt-image-1 |
+| `video-gen` | Failover | 19 | veo3 family, Wan2.x I2V/T2V, sora variants |
 
-### Rerankers
+### Audio (1)
 
-| Name | Mode | Purpose | Members |
+| Group | Mode | Items | Top picks |
 |---|---|---|---|
-| `rerank` | RoundRobin | RAG reranker pool | qwen3-reranker-0.6b/4b/8b → BCE/BGE rerankers |
+| `audio` | Failover | 57 | whisper, gpt-4o-audio/transcribe/realtime, tts-1, qwen3-tts/asr, ElevenLabs, Polly, fish-speech, CosyVoice, SenseVoice |
 
-### Legacy
+### Embeddings & rerank (5)
 
-| Name | Mode | Purpose |
-|---|---|---|
-| `legacy` | Failover | Quarantine for qwen1.5-* and pre-2507 originals. Backwards compat only. |
+| Group | Mode | Items | Notes |
+|---|---|---|---|
+| `Embeddings-DB-MULTI-BGE-M3` | Failover | 5 | DB-bound, BGE-M3 1024d. **Default for vector-DB.** |
+| `Embeddings-DB-EN-BGE-Large` | Failover | 1 | DB-bound. ⚠ Channel currently disabled. |
+| `Embeddings-DB-ZH-BGE-Large` | Failover | 1 | DB-bound. ⚠ Channel currently disabled. |
+| `embed-adhoc` | RoundRobin | 32 | Mixed-family pool. **Not safe for stored vectors.** |
+| `rerank` | RoundRobin | 21 | Qwen3-Reranker, BCE-Reranker, BGE-Reranker-v2-m3. **See caveat below.** |
 
-## Old → New mapping
+### `rerank` caveat
 
-| Old group | Action | New group |
-|---|---|---|
-| Agentic-Coder | rename + repopulate | `code` |
-| Audio-Speech-Group | rename | `audio` |
-| Deep-Reasoning | merge | `reason` |
-| reasoning | merge (drops duplicate) | `reason` |
-| Embeddings-BGE | rename | `embed-bge` |
-| Embeddings-Qwen3 | rename | `embed-qwen3` |
-| Embeddings-Experiment-Universal | drop | — |
-| Embeddings-BCE | drop or absorb into `rerank`/`embed-bge` | — |
-| Embeddings-NVIDIA | drop | — |
-| Embeddings-DB-MULTI-BGE-M3 | preserve verbatim | unchanged |
-| Embeddings-DB-ZH-BGE-Large | preserve verbatim | unchanged |
-| Embeddings-DB-EN-BGE-Large | preserve verbatim | unchanged |
-| Flash-Efficiency | rename + repopulate | `chat-fast` |
-| Multimodal-Generation-Groups | split | `vision` + `omni` |
-| Omni-Intelligence | rename | `omni` |
-| Rerankers-Qwen3 | rename | `rerank` |
-| The-MoE-Safety-Net | rename | `chat-flagship` |
+Octopus only exposes 4 inbound paths: `/v1/chat/completions`, `/v1/responses`,
+`/v1/messages`, `/v1/embeddings`. There is **no `/v1/rerank` route** in this
+gateway. The `rerank` group exists so that:
+
+1. Reranker model names show up in `/v1/models` for client discovery.
+2. If/when an operator adds a rerank route to the relay handler, the routing
+   pool is already configured.
+
+Today, to actually invoke a reranker, you must call its underlying provider
+directly (e.g. SiliconFlow's `/v1/rerank`) bypassing this gateway, or add the
+rerank inbound type to `internal/server/handlers/relay.go` and a corresponding
+transformer.
 
 ## Match-regex behaviour
 
-Each new group has a `match_regex` so callers can hit it either by:
+Every group has a `match_regex` like `(?i)^chat$` so callers can request the
+group by its canonical name as the `model` field. The original system also
+let model regexes route to groups; the new design intentionally tightens this
+to exact group-name matches. This is a behaviour change.
 
-- the canonical group name (e.g. `model: "code"`), or
-- any underlying model name that the regex matches (e.g. `model: "qwen3-coder-480b-a35b-instruct"` also routes to `code`).
+If you want a model name like `claude-opus-4-6` to also route into the `code`
+group, edit `match_regex` for `code` in `redesignGroups.py` and re-run the
+script — it'll diff and update.
 
-This means migration of clients is gradual — they can stop hardcoding model
-names and switch to capability names at their own pace.
+## Routing modes
 
-## Smoke-test commands
+| Mode | Used for | Behaviour |
+|---|---|---|
+| `Failover` (3) | Most groups | Try priority 1 channel/model first; on failure, fall through to higher priority numbers. |
+| `RoundRobin` (1) | `chat-fast`, `embed-adhoc`, `rerank` | Cycle through items at the same priority for even load. |
+
+## Operator workflow
 
 ```sh
-KEY=sk-octopus-DUYIPoWjQChAtbj3dUSxeVmO6fpELGGoxP4aZxhqwEnWo3Gp
+# Authoritative re-converge (idempotent — diffs and applies only deltas)
+OCTOPUS_BASE_URL=https://llmapi.iamwillywang.com \
+OCTOPUS_USERNAME=<admin> OCTOPUS_PASSWORD=<pass> \
+OCTOPUS_APPLY=1 \
+python3 scripts/redesignGroups.py
+
+# Dry-run (preview only, no writes)
+OCTOPUS_BASE_URL=... OCTOPUS_USERNAME=... OCTOPUS_PASSWORD=... \
+python3 scripts/redesignGroups.py
+```
+
+To change membership rules, edit `TARGET_GROUPS` in `scripts/redesignGroups.py`
+and re-run with `OCTOPUS_APPLY=1`. The script will:
+
+- create any missing groups
+- add new items, update changed items, delete removed items
+- never touch the `Embeddings-DB-*` groups (preserved verbatim)
+- never delete groups outside the `RETIRE_GROUPS` allow-list
+
+## Smoke tests
+
+```sh
+KEY=<your sk-octopus-... API key>
 BASE=https://llmapi.iamwillywang.com
+H="-H 'Authorization: Bearer $KEY' -H 'Content-Type: application/json'"
 
-# Chat groups
-for g in chat chat-fast chat-flagship code reason; do
+# Chat-style groups
+for g in chat chat-fast chat-flagship code reason vision vision-thinking; do
   echo "== $g =="
-  curl -s -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
-    "$BASE/v1/chat/completions" \
-    -d "{\"model\":\"$g\",\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}],\"max_tokens\":4}" \
-    | python3 -m json.tool | head -20
+  curl -s $H "$BASE/v1/chat/completions" \
+    -d "{\"model\":\"$g\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":4}" \
+    | python3 -c "import json,sys;d=json.load(sys.stdin);print('model =', d.get('model'))"
 done
 
-# Vision (text-only smoke test, no image)
-curl -s -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
-  "$BASE/v1/chat/completions" \
-  -d '{"model":"vision","messages":[{"role":"user","content":"hello"}],"max_tokens":4}'
-
-# Embeddings
-for g in embed-qwen3 embed-bge Embeddings-DB-MULTI-BGE-M3; do
+# Embeddings — verify dimensions match what your vector DB expects
+for g in Embeddings-DB-MULTI-BGE-M3 embed-adhoc; do
   echo "== $g =="
-  curl -s -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
-    "$BASE/v1/embeddings" \
+  curl -s $H "$BASE/v1/embeddings" \
     -d "{\"model\":\"$g\",\"input\":\"hello\"}" \
-    | python3 -c "import json,sys; d=json.load(sys.stdin); print('dim =', len(d['data'][0]['embedding']))"
+    | python3 -c "import json,sys;d=json.load(sys.stdin);print('model =',d.get('model'),' dim =',len(d['data'][0]['embedding']))"
 done
-
-# Rerank (path depends on transformer; usually /v1/rerank)
-curl -s -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
-  "$BASE/v1/rerank" \
-  -d '{"model":"rerank","query":"hello","documents":["world","goodbye"]}'
 ```
