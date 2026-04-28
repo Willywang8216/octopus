@@ -110,16 +110,63 @@ directly (e.g. SiliconFlow's `/v1/rerank`) bypassing this gateway, or add the
 rerank inbound type to `internal/server/handlers/relay.go` and a corresponding
 transformer.
 
-## Match-regex behaviour
+## How `model` is resolved on an inbound request
 
-Every group has a `match_regex` like `(?i)^chat$` so callers can request the
-group by its canonical name as the `model` field. The original system also
-let model regexes route to groups; the new design intentionally tightens this
-to exact group-name matches. This is a behaviour change.
+Octopus does **exact-name group lookup**, not regex routing. When a request
+arrives at `/v1/chat/completions` (or `/v1/embeddings`, `/v1/messages`,
+`/v1/responses`), the relay reads the `model` field and looks it up directly
+in the in-memory group map keyed by group name (`internal/op/group.go`,
+`GroupGetEnabledMap`).
 
-If you want a model name like `claude-opus-4-6` to also route into the `code`
-group, edit `match_regex` for `code` in `redesignGroups.py` and re-run the
-script — it'll diff and update.
+That means:
+
+- `{"model": "code"}` works — routes to the `code` group.
+- `{"model": "claude-opus-4-6"}` does **not** work as a shortcut, even though
+  that model is one of the items inside the `code` group. The upstream model
+  name is what gets sent to the provider after a channel is picked, but it
+  is not how clients enter the system.
+- Old names like `"Deep-Reasoning"` or `"Agentic-Coder"` do **not** work
+  anymore — those groups were deleted during the redesign.
+
+`match_regex` on a group does not affect inbound routing. It is used only by
+the auto-group population logic in `internal/helper/channel.go`: when a
+channel auto-syncs and reports its upstream model list, models matching a
+group's regex get auto-added as items to that group.
+
+### Calling Octopus vs. calling an upstream channel directly
+
+These are two different things and use different keys:
+
+```sh
+# Through Octopus — uses your sk-octopus-... key. model = group name.
+curl https://llmapi.iamwillywang.com/v1/chat/completions \
+  -H "Authorization: Bearer sk-octopus-..." \
+  -d '{"model":"code","messages":[{"role":"user","content":"hi"}]}'
+
+# Direct to upstream — uses the upstream provider's key. model = upstream model.
+# Group names like "code" or "Deep-Reasoning" are meaningless here.
+curl https://upstream.example.com/v1/chat/completions \
+  -H "Authorization: Bearer sk-upstream-..." \
+  -d '{"model":"claude-opus-4-6","messages":[{"role":"user","content":"hi"}]}'
+```
+
+Mixing them up — sending `sk-octopus-...` to upstream, or sending an upstream
+key to Octopus — gets a 401. Sending a group name to an upstream provider
+gets a 404 from the provider.
+
+### Backwards compatibility
+
+If you have clients still calling old group names, two options:
+
+1. **Update the clients** to use the new names: `Deep-Reasoning` → `reason`,
+   `Agentic-Coder` → `code`, `Flash-Efficiency` → `chat-fast`,
+   `The-MoE-Safety-Net` → `chat-flagship`, `Omni-Intelligence` → `chat`,
+   `Multimodal-Generation-Groups` → `vision` (or `image-gen` for generation),
+   `Audio-Speech-Group` → `audio`, `Rerankers-Qwen3` → `rerank`.
+2. **Recreate the old names as alias groups**. Add the old name to
+   `TARGET_GROUPS` in `scripts/redesignGroups.py` with the same `members`
+   rules as the new group, then re-run with `OCTOPUS_APPLY=1`. Both names
+   will then point at the same upstream items.
 
 ## Routing modes
 
