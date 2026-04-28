@@ -54,6 +54,26 @@ func init() {
 		AddRoute(
 			router.NewRoute("/last-sync-time", http.MethodGet).
 				Handle(getLastSyncTime),
+		).
+		AddRoute(
+			router.NewRoute("/test/start", http.MethodPost).
+				Handle(startChannelTest),
+		).
+		AddRoute(
+			router.NewRoute("/test/cancel", http.MethodPost).
+				Handle(cancelChannelTest),
+		).
+		AddRoute(
+			router.NewRoute("/test/status", http.MethodGet).
+				Handle(getChannelTestStatus),
+		).
+		AddRoute(
+			router.NewRoute("/test/results", http.MethodGet).
+				Handle(getChannelTestResults),
+		).
+		AddRoute(
+			router.NewRoute("/test/results/:id", http.MethodGet).
+				Handle(getChannelTestResult),
 		)
 }
 
@@ -170,4 +190,57 @@ func syncChannel(c *gin.Context) {
 func getLastSyncTime(c *gin.Context) {
 	time := task.GetLastSyncModelsTime()
 	resp.Success(c, time)
+}
+
+// startChannelTestRequest is the optional payload for /channel/test/start.
+// When `channel_ids` is empty or absent, every enabled channel is tested.
+type startChannelTestRequest struct {
+	ChannelIDs []int `json:"channel_ids"`
+}
+
+func startChannelTest(c *gin.Context) {
+	var req startChannelTestRequest
+	// Body is optional; ignore parse errors when there is no body to read.
+	if c.Request.ContentLength > 0 {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
+			return
+		}
+	}
+	if err := task.StartChannelTest(req.ChannelIDs); err != nil {
+		// 409 Conflict communicates "already running" without scaring the
+		// frontend into showing an error toast for what is essentially a
+		// benign duplicate-click.
+		resp.Error(c, http.StatusConflict, err.Error())
+		return
+	}
+	resp.Success(c, task.ChannelTestStatus())
+}
+
+func cancelChannelTest(c *gin.Context) {
+	task.CancelChannelTest()
+	resp.Success(c, task.ChannelTestStatus())
+}
+
+func getChannelTestStatus(c *gin.Context) {
+	resp.Success(c, task.ChannelTestStatus())
+}
+
+func getChannelTestResults(c *gin.Context) {
+	resp.Success(c, task.ChannelTestAllResults())
+}
+
+func getChannelTestResult(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidParam)
+		return
+	}
+	result := task.ChannelTestResult(id)
+	if result == nil {
+		resp.Error(c, http.StatusNotFound, "no test result for this channel")
+		return
+	}
+	resp.Success(c, result)
 }

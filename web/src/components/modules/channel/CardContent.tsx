@@ -26,6 +26,7 @@ import { ChannelForm, type ChannelFormData } from './Form';
 import { formatMoney } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { TestResults } from './TestResults';
 
 export function CardContent({ channel, stats }: { channel: Channel; stats: StatsMetricsFormatted }) {
     const { setIsOpen } = useMorphingDialog();
@@ -407,6 +408,9 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                         )}
                                     </div>
                                 </section>
+
+                                {/* Test results */}
+                                <TestResults channelID={channel.id} />
 
                                 {/* 等待时间 */}
                                 <dl className="rounded-2xl border bg-card p-3 sm:p-4 transition-colors hover:bg-accent/5">

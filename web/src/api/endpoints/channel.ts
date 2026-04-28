@@ -363,3 +363,135 @@ export function useSyncChannel() {
         },
     });
 }
+
+/**
+ * Channel test results — backend type mirror.
+ *
+ * The frontend renders progressively: the run status (lightweight summaries)
+ * powers the channel list badge counts, while detail views fetch the full
+ * per-channel result on demand.
+ */
+export type ChannelTestModelResult = {
+    model: string;
+    success: boolean;
+    status_code: number;
+    duration_ms: number;
+    error?: string;
+};
+
+export type ChannelTestKeyResult = {
+    key_id: number;
+    key_preview: string;
+    key_remark?: string;
+    enabled: boolean;
+    results: ChannelTestModelResult[];
+};
+
+export type ChannelTestChannelResult = {
+    channel_id: number;
+    channel_name: string;
+    started_at: string;
+    finished_at?: string;
+    total_models: number;
+    worked_models: number;
+    total_keys: number;
+    worked_keys: number;
+    skipped?: string;
+    keys: ChannelTestKeyResult[];
+};
+
+export type ChannelTestChannelSummary = {
+    channel_id: number;
+    channel_name: string;
+    total_models: number;
+    worked_models: number;
+    total_keys: number;
+    worked_keys: number;
+    started_at: string;
+    finished_at?: string;
+    skipped?: string;
+};
+
+export type ChannelTestRunStatus = {
+    running: boolean;
+    total_channels: number;
+    completed_channels: number;
+    started_at: string;
+    finished_at?: string;
+    channels?: Record<string, ChannelTestChannelSummary>;
+};
+
+/**
+ * Live status of the channel test runner. Polls every 2s while a run is
+ * active so the per-card badges update in near-real-time.
+ */
+export function useChannelTestStatus() {
+    return useQuery<ChannelTestRunStatus>({
+        queryKey: ['channels', 'test', 'status'],
+        queryFn: async () => apiClient.get<ChannelTestRunStatus>('/api/v1/channel/test/status'),
+        refetchInterval: (query) => (query.state.data?.running ? 2000 : false),
+        refetchOnWindowFocus: false,
+    });
+}
+
+/**
+ * Full per-channel test report. Fetched lazily when a card is opened so we
+ * avoid shipping the entire result tree on the channel list page.
+ */
+export function useChannelTestResult(channelID: number, enabled: boolean) {
+    return useQuery<ChannelTestChannelResult | null>({
+        queryKey: ['channels', 'test', 'result', channelID],
+        queryFn: async () => {
+            try {
+                return await apiClient.get<ChannelTestChannelResult>(
+                    `/api/v1/channel/test/results/${channelID}`,
+                );
+            } catch (err) {
+                // 404 means "no result yet" — treat as null instead of bubbling
+                // the error up so the UI can render an empty state cleanly.
+                if (err && typeof err === 'object' && 'code' in err && err.code === 404) {
+                    return null;
+                }
+                throw err;
+            }
+        },
+        enabled,
+        refetchInterval: 5000,
+        refetchOnWindowFocus: false,
+    });
+}
+
+/**
+ * Kick off a channel test run. Optional `channel_ids` scopes the run to a
+ * subset; omit to test every enabled channel.
+ */
+export function useStartChannelTest() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (channelIDs?: number[]) =>
+            apiClient.post<ChannelTestRunStatus>(
+                '/api/v1/channel/test/start',
+                channelIDs && channelIDs.length > 0 ? { channel_ids: channelIDs } : undefined,
+            ),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['channels', 'test'] });
+        },
+        onError: (error) => {
+            logger.error('启动渠道测试失败:', error);
+        },
+    });
+}
+
+/**
+ * Cancel an in-progress run. No-op when nothing is running.
+ */
+export function useCancelChannelTest() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async () =>
+            apiClient.post<ChannelTestRunStatus>('/api/v1/channel/test/cancel'),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['channels', 'test'] });
+        },
+    });
+}
