@@ -47,7 +47,12 @@ func FetchModels(ctx context.Context, request model.Channel) ([]string, error) {
 				matchModel = append(matchModel, model)
 			}
 		}
-		return matchModel, nil
+		fetchModel = matchModel
+	}
+	// 统一小写：上游模型名大小写不稳定（同一模型在不同时间可能返回 GPT-4 / gpt-4），
+	// 若不规范化，每次同步都会被 diff 误判为既删除又新增，产生大量噪声并破坏 GroupItem 关联。
+	for i, m := range fetchModel {
+		fetchModel[i] = strings.ToLower(strings.TrimSpace(m))
 	}
 	return fetchModel, nil
 }

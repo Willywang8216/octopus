@@ -77,27 +77,13 @@ func setSetting(c *gin.Context) {
 			return
 		}
 		task.Update(string(setting.Key), time.Duration(hours)*time.Hour)
-	case model.SettingKeyChannelKeySaveInterval:
+	case model.SettingKeyChannelProbeInterval:
 		minutes, err := strconv.Atoi(setting.Value)
 		if err != nil {
 			resp.Error(c, http.StatusBadRequest, err.Error())
 			return
 		}
-		task.Update(task.TaskChannelKeySave, time.Duration(minutes)*time.Minute)
-	case model.SettingKeyChannelKeyRecheckInterval:
-		minutes, err := strconv.Atoi(setting.Value)
-		if err != nil {
-			resp.Error(c, http.StatusBadRequest, err.Error())
-			return
-		}
-		task.Update(task.TaskChannelKeyRecheck, time.Duration(minutes)*time.Minute)
-	case model.SettingKeyGroupItemRecheckInterval:
-		minutes, err := strconv.Atoi(setting.Value)
-		if err != nil {
-			resp.Error(c, http.StatusBadRequest, err.Error())
-			return
-		}
-		task.Update(task.TaskGroupItemRecheck, time.Duration(minutes)*time.Minute)
+		task.Update(task.TaskChannelProbe, time.Duration(minutes)*time.Minute)
 	}
 	resp.Success(c, setting)
 }

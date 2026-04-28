@@ -7,18 +7,26 @@ import (
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/price"
+	"github.com/bestruirui/octopus/internal/relay/balancer"
 	"github.com/bestruirui/octopus/internal/utils/log"
 )
 
 const (
-	TaskPriceUpdate      = "price_update"
-	TaskStatsSave        = "stats_save"
-	TaskRelayLogSave     = "relay_log_save"
-	TaskSyncLLM          = "sync_llm"
-	TaskCleanLLM         = "clean_llm"
-	TaskBaseUrlDelay     = "base_url_delay"
-	TaskAutoDisableRetry = "auto_disable_retry"
-	TaskModelCheck       = "model_check"
+	TaskPriceUpdate   = "price_update"
+	TaskStatsSave     = "stats_save"
+	TaskRelayLogSave  = "relay_log_save"
+	TaskSyncLLM       = "sync_llm"
+	TaskCleanLLM      = "clean_llm"
+	TaskBaseUrlDelay  = "base_url_delay"
+	TaskBalancerGC    = "balancer_gc"
+	TaskChannelProbe  = "channel_probe"
+)
+
+// 平衡器内存维护：每 5 分钟清理一次过期会话和空闲熔断器条目。
+const (
+	balancerGCInterval     = 5 * time.Minute
+	stickySessionMaxAge    = 24 * time.Hour
+	circuitBreakerIdleTime = 24 * time.Hour
 )
 
 func Init() {
@@ -75,14 +83,22 @@ func Init() {
 		}
 	})
 
-	// 注册自动禁用重试任务（每小时检查一次）
-	Register(TaskAutoDisableRetry, 1*time.Hour, false, AutoDisableRetryTask)
+	// 注册平衡器内存维护任务，回收过期的粘性会话和空闲熔断器条目，
+	// 防止 sync.Map 在长时间运行的实例中无限增长。
+	Register(TaskBalancerGC, balancerGCInterval, false, func() {
+		sessions := balancer.GCSticky(stickySessionMaxAge)
+		circuits := balancer.GCCircuit(circuitBreakerIdleTime)
+		if sessions > 0 || circuits > 0 {
+			log.Debugf("balancer GC removed %d sticky sessions, %d circuit entries", sessions, circuits)
+		}
+	})
 
-	// 注册模型可用性检查任务
-	modelCheckIntervalHours, err := op.SettingGetInt(model.SettingKeyModelCheckInterval)
-	if err != nil || modelCheckIntervalHours <= 0 {
-		modelCheckIntervalHours = 24
+	// 注册渠道健康探测任务：周期性向非 ALIVE 渠道发送最小请求，
+	// 配合 scripts/auditChannels.py 让 NEW/FLAKY 渠道更快被分类。
+	probeIntervalMinutes, err := op.SettingGetInt(model.SettingKeyChannelProbeInterval)
+	if err != nil {
+		log.Warnf("failed to get channel probe interval: %v", err)
+		return
 	}
-	modelCheckInterval := time.Duration(modelCheckIntervalHours) * time.Hour
-	Register(TaskModelCheck, modelCheckInterval, false, ModelAvailabilityCheckTask)
+	Register(TaskChannelProbe, time.Duration(probeIntervalMinutes)*time.Minute, false, ChannelProbeTask)
 }

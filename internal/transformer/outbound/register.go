@@ -17,11 +17,17 @@ const (
 	OutboundTypeGemini
 	OutboundTypeVolcengine
 	OutboundTypeOpenAIEmbedding
+	OutboundTypeOpenAIRerank
 )
 
 // EmbeddingChannelTypes 定义支持 embedding 请求的 channel 类型集合
 var EmbeddingChannelTypes = map[OutboundType]bool{
 	OutboundTypeOpenAIEmbedding: true,
+}
+
+// RerankChannelTypes 定义支持 rerank 请求的 channel 类型集合
+var RerankChannelTypes = map[OutboundType]bool{
+	OutboundTypeOpenAIRerank: true,
 }
 
 // ChatChannelTypes 定义支持 chat 请求的 channel 类型集合
@@ -38,6 +44,11 @@ func IsEmbeddingChannelType(channelType OutboundType) bool {
 	return EmbeddingChannelTypes[channelType]
 }
 
+// IsRerankChannelType 判断 channel 类型是否支持 rerank 请求
+func IsRerankChannelType(channelType OutboundType) bool {
+	return RerankChannelTypes[channelType]
+}
+
 // IsChatChannelType 判断 channel 类型是否支持 chat 请求
 func IsChatChannelType(channelType OutboundType) bool {
 	return ChatChannelTypes[channelType]
@@ -47,6 +58,7 @@ var outboundFactories = map[OutboundType]func() model.Outbound{
 	OutboundTypeOpenAIChat:      func() model.Outbound { return &openai.ChatOutbound{} },
 	OutboundTypeOpenAIResponse:  func() model.Outbound { return &openai.ResponseOutbound{} },
 	OutboundTypeOpenAIEmbedding: func() model.Outbound { return &openai.EmbeddingOutbound{} },
+	OutboundTypeOpenAIRerank:    func() model.Outbound { return &openai.RerankOutbound{} },
 	OutboundTypeAnthropic:       func() model.Outbound { return &authropic.MessageOutbound{} },
 	OutboundTypeGemini:          func() model.Outbound { return &gemini.MessagesOutbound{} },
 	OutboundTypeVolcengine:      func() model.Outbound { return &volcengine.ResponseOutbound{} },

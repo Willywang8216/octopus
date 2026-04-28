@@ -36,6 +36,41 @@ MODE_RANDOM = 2
 MODE_FAILOVER = 3
 MODE_WEIGHTED = 4
 
+
+# Channel quality bands (mirrors auditChannels.py)
+DEAD_TOTAL_THRESHOLD = 500
+ZOMBIE_TOTAL_THRESHOLD = 5000
+
+# Per-band priority offset added to each member's base priority. Lower = better.
+QUALITY_OFFSET = {
+    "ALIVE":  0,
+    "NEW":    50,    # untested — try after ALIVE/FLAKY but before DEAD
+    "FLAKY":  100,
+    "DEAD":   1000,  # excluded by default
+    "ZOMBIE": 1000,  # excluded by default
+}
+# Channels in these bands are skipped entirely (not included as items).
+EXCLUDE_BANDS = {"DEAD", "ZOMBIE"}
+
+
+def classify_channel(channel: dict) -> str:
+    s = channel.get("stats") or {}
+    succ = int(s.get("request_success") or 0)
+    fail = int(s.get("request_failed") or 0)
+    total = succ + fail
+    if total == 0:
+        return "NEW"
+    rate = succ / total
+    if total >= ZOMBIE_TOTAL_THRESHOLD and succ == 0:
+        return "ZOMBIE"
+    if total >= DEAD_TOTAL_THRESHOLD and rate < 0.05:
+        return "DEAD"
+    if total < 50:
+        return "NEW"
+    if rate >= 0.20:
+        return "ALIVE"
+    return "FLAKY"
+
 DEFAULT_FIRST_TOKEN_TIMEOUT = 30  # seconds
 DEFAULT_SESSION_KEEP_TIME = 0     # disabled
 
@@ -394,18 +429,28 @@ def build_model_index(channels: list[dict], groups: list[dict]) -> dict[str, lis
 def discover_members(
     member_rules: list[tuple[str, int]],
     model_index: dict[str, list[int]],
+    channel_bands: dict[int, str],
+    channel_enabled: dict[int, bool],
 ) -> list[dict]:
     """Resolve regex-based member rules against the live model index.
-    Returns a list of {channel_id, model_name, priority, weight=1} dicts,
-    deduped on (channel_id, model_name)."""
+
+    Each member has a base priority; we add a per-channel-quality offset so
+    higher-quality channels are tried first. Channels in EXCLUDE_BANDS or
+    explicitly disabled are skipped entirely.
+    """
     seen: set[tuple[int, str]] = set()
     items: list[dict] = []
-    for pattern, priority in member_rules:
+    for pattern, base_priority in member_rules:
         rx = re.compile(pattern)
         for model_name, channel_ids in model_index.items():
             if not rx.search(model_name):
                 continue
             for cid in channel_ids:
+                if not channel_enabled.get(cid, False):
+                    continue
+                band = channel_bands.get(cid, "NEW")
+                if band in EXCLUDE_BANDS:
+                    continue
                 key = (cid, model_name)
                 if key in seen:
                     continue
@@ -413,7 +458,7 @@ def discover_members(
                 items.append({
                     "channel_id": cid,
                     "model_name": model_name,
-                    "priority": priority,
+                    "priority": base_priority + QUALITY_OFFSET.get(band, 50),
                     "weight": 1,
                 })
     return items
@@ -447,8 +492,12 @@ def diff_items(current: list[dict], desired: list[dict]) -> tuple[list[dict], li
 
 
 def converge_group(client: Client, target: dict, existing: dict | None,
-                   model_index: dict[str, list[int]], apply: bool) -> None:
-    desired_items = discover_members(target["members"], model_index)
+                   model_index: dict[str, list[int]],
+                   channel_bands: dict[int, str],
+                   channel_enabled: dict[int, bool],
+                   apply: bool) -> None:
+    desired_items = discover_members(target["members"], model_index,
+                                     channel_bands, channel_enabled)
     name = target["name"]
 
     if existing is None:
@@ -521,16 +570,26 @@ def main() -> int:
     channels = client.channel_list()
     groups = client.group_list()
     model_index = build_model_index(channels, groups)
-    print(f"Discovered {len(channels)} channels, "
+    channel_bands = {int(c["id"]): classify_channel(c) for c in channels}
+    channel_enabled = {int(c["id"]): bool(c.get("enabled")) for c in channels}
+    band_counts: dict[str, int] = {}
+    for b in channel_bands.values():
+        band_counts[b] = band_counts.get(b, 0) + 1
+    print(f"Discovered {len(channels)} channels "
+          f"(bands: {dict(sorted(band_counts.items()))}), "
           f"{len(model_index)} unique models, "
           f"{len(groups)} existing groups.")
+    excluded = sum(1 for cid, b in channel_bands.items()
+                   if b in EXCLUDE_BANDS or not channel_enabled.get(cid, False))
+    print(f"Channels excluded from new items: {excluded} "
+          f"(disabled or DEAD/ZOMBIE).")
 
     by_name = {g["name"]: g for g in groups}
 
     print("\n== Converging target groups ==")
     for target in TARGET_GROUPS:
         converge_group(client, target, by_name.get(target["name"]),
-                       model_index, apply)
+                       model_index, channel_bands, channel_enabled, apply)
 
     print("\n== DB-bound groups (preserve names, leave items alone) ==")
     for name in DB_BOUND_GROUP_NAMES:

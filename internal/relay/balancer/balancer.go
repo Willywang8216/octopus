@@ -2,6 +2,7 @@ package balancer
 
 import (
 	"math/rand"
+	"math"
 	"sort"
 	"sync/atomic"
 
@@ -105,12 +106,21 @@ func (b *Weighted) Candidates(items []model.GroupItem) []model.GroupItem {
 		if w <= 0 {
 			w = 1
 		}
-		// 给每个 item 一个加权随机分数：weight/totalWeight 作为概率基础，加上随机扰动
+		// A-Res reservoir-sampling weighted score. Items with higher weight
+		// are more likely to receive higher scores.
+		// score = U^(1/weight)  where U ~ Uniform(0, 1)
+		// Probability that score_i > score_j scales monotonically with weight ratio.
+		u := rand.Float64()
+		if u <= 0 {
+			u = 1e-12
+		}
+		invW := 1.0 / float64(w)
 		scored[i] = weightedItem{
 			item:  item,
-			score: rand.Float64() * float64(w) / float64(totalWeight),
+			score: pow(u, invW),
 		}
 	}
+	_ = totalWeight  // retained for telemetry/future use
 
 	// 按分数降序排列（分数越高优先级越高）
 	sort.Slice(scored, func(i, j int) bool {
@@ -131,4 +141,11 @@ func sortByPriority(items []model.GroupItem) []model.GroupItem {
 		return sorted[i].Priority < sorted[j].Priority
 	})
 	return sorted
+}
+
+
+// pow is a small wrapper so the formula reads naturally. Keeps a single
+// reference to math.Pow for testability.
+func pow(x, y float64) float64 {
+	return math.Pow(x, y)
 }

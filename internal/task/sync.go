@@ -3,6 +3,7 @@ package task
 import (
 	"context"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/bestruirui/octopus/internal/helper"
@@ -13,7 +14,11 @@ import (
 	"github.com/bestruirui/octopus/internal/utils/xstrings"
 )
 
-var lastSyncModelsTime = time.Now()
+var lastSyncModelsTime atomic.Value // stores time.Time
+
+func init() {
+	lastSyncModelsTime.Store(time.Now())
+}
 
 // SyncModelsTask 同步模型任务
 func SyncModelsTask() {
@@ -37,14 +42,20 @@ func SyncModelsTask() {
 			log.Warnf("failed to fetch models for channel %s: %v", channel.Name, err)
 			continue
 		}
+		// fetch.FetchModels 已统一小写，这里再防御性归一以兼容遗留数据：
+		// channel.Model 在迁移前可能仍有大小写混用的历史值。
 		oldModels := xstrings.SplitTrimCompact(",", channel.Model)
+		for i, m := range oldModels {
+			oldModels[i] = strings.ToLower(m)
+		}
 		newModels := xstrings.TrimCompact(fetchModels)
+		for i, m := range newModels {
+			newModels[i] = strings.ToLower(m)
+		}
 		for _, m := range newModels {
-			m = strings.TrimSpace(m)
 			if m == "" {
 				continue
 			}
-			m = strings.ToLower(m)
 			if _, ok := seenTotalNewModels[m]; ok {
 				continue
 			}
@@ -100,9 +111,12 @@ func SyncModelsTask() {
 			log.Errorf("failed to add models price: %v", err)
 		}
 	}
-	lastSyncModelsTime = time.Now()
+	lastSyncModelsTime.Store(time.Now())
 }
 
 func GetLastSyncModelsTime() time.Time {
-	return lastSyncModelsTime
+	if v := lastSyncModelsTime.Load(); v != nil {
+		return v.(time.Time)
+	}
+	return time.Time{}
 }

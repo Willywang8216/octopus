@@ -19,59 +19,18 @@ const (
 	SettingKeyCircuitBreakerThreshold   SettingKey = "circuit_breaker_threshold"    // 熔断触发阈值（连续失败次数）
 	SettingKeyCircuitBreakerCooldown    SettingKey = "circuit_breaker_cooldown"     // 熔断基础冷却时间（秒）
 	SettingKeyCircuitBreakerMaxCooldown SettingKey = "circuit_breaker_max_cooldown" // 熔断最大冷却时间（秒），指数退避上限
-	SettingKeyAutoDisableRetryDays      SettingKey = "auto_disable_retry_days"      // 渠道自动禁用后的重试间隔（天）
+	SettingKeyJWTSecret                 SettingKey = "jwt_secret"                   // JWT 签名密钥，首次启动时随机生成，可手动轮换
+	SettingKeyChannelProbeInterval      SettingKey = "channel_probe_interval"       // 通道健康探测间隔(分钟), 0 表示禁用
 )
 
-const (
-	SettingValueTrue  = "true"
-	SettingValueFalse = "false"
-)
-
-func isBoolSettingValue(s string) bool {
-	return s == SettingValueTrue || s == SettingValueFalse
-}
-
-func isIntSettingValue(s string) bool {
-	_, err := strconv.Atoi(s)
-	return err == nil
-}
-
-func isNonNegativeIntSettingValue(s string) bool {
-	n, err := strconv.Atoi(s)
-	if err != nil {
-		return false
+// IsInternal reports whether a setting key holds a server-side secret that
+// must not be exposed via the public settings API.
+func (k SettingKey) IsInternal() bool {
+	switch k {
+	case SettingKeyJWTSecret:
+		return true
 	}
-	return n >= 0
-}
-
-func isPositiveIntSettingValue(s string) bool {
-	n, err := strconv.Atoi(s)
-	if err != nil {
-		return false
-	}
-	return n > 0
-}
-
-func isValidProxyURLValue(s string) error {
-	if s == "" {
-		return nil
-	}
-	parsedURL, err := url.Parse(s)
-	if err != nil {
-		return fmt.Errorf("proxy URL is invalid: %w", err)
-	}
-	validSchemes := map[string]bool{
-		"http":  true,
-		"https": true,
-		"socks": true,
-	}
-	if !validSchemes[parsedURL.Scheme] {
-		return fmt.Errorf("proxy URL scheme must be http, https, or socks")
-	}
-	if parsedURL.Host == "" {
-		return fmt.Errorf("proxy URL must have a host")
-	}
-	return nil
+	return false
 }
 
 type Setting struct {
@@ -91,7 +50,7 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyCircuitBreakerThreshold, Value: "5"},     // 默认连续失败5次触发熔断
 		{Key: SettingKeyCircuitBreakerCooldown, Value: "60"},     // 默认基础冷却60秒
 		{Key: SettingKeyCircuitBreakerMaxCooldown, Value: "600"}, // 默认最大冷却600秒（10分钟）
-		{Key: SettingKeyAutoDisableRetryDays, Value: "1"},        // 默认自动禁用后1天重试
+		{Key: SettingKeyChannelProbeInterval, Value: "30"},       // 默认 30 分钟探测一次非 ALIVE 渠道, 0 关闭
 	}
 }
 
@@ -99,7 +58,7 @@ func (s *Setting) Validate() error {
 	switch s.Key {
 	case SettingKeyModelInfoUpdateInterval, SettingKeySyncLLMInterval, SettingKeyRelayLogKeepPeriod,
 		SettingKeyCircuitBreakerThreshold, SettingKeyCircuitBreakerCooldown, SettingKeyCircuitBreakerMaxCooldown,
-		SettingKeyAutoDisableRetryDays:
+		SettingKeyChannelProbeInterval:
 		_, err := strconv.Atoi(s.Value)
 		if err != nil {
 			return fmt.Errorf("model info update interval must be an integer")
