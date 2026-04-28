@@ -19,7 +19,18 @@ const (
 	SettingKeyCircuitBreakerThreshold   SettingKey = "circuit_breaker_threshold"    // 熔断触发阈值（连续失败次数）
 	SettingKeyCircuitBreakerCooldown    SettingKey = "circuit_breaker_cooldown"     // 熔断基础冷却时间（秒）
 	SettingKeyCircuitBreakerMaxCooldown SettingKey = "circuit_breaker_max_cooldown" // 熔断最大冷却时间（秒），指数退避上限
+	SettingKeyJWTSecret                 SettingKey = "jwt_secret"                   // JWT 签名密钥，首次启动时随机生成，可手动轮换
 )
+
+// IsInternal reports whether a setting key holds a server-side secret that
+// must not be exposed via the public settings API.
+func (k SettingKey) IsInternal() bool {
+	switch k {
+	case SettingKeyJWTSecret:
+		return true
+	}
+	return false
+}
 
 type Setting struct {
 	Key   SettingKey `json:"key" gorm:"primaryKey"`
