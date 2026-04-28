@@ -29,6 +29,10 @@ func init() {
 		AddRoute(
 			router.NewRoute("/embeddings", http.MethodPost).
 				Handle(embedding),
+		).
+		AddRoute(
+			router.NewRoute("/rerank", http.MethodPost).
+				Handle(rerank),
 		)
 }
 
@@ -43,4 +47,7 @@ func message(c *gin.Context) {
 }
 func embedding(c *gin.Context) {
 	relay.Handler(inbound.InboundTypeOpenAIEmbedding, c)
+}
+func rerank(c *gin.Context) {
+	relay.Handler(inbound.InboundTypeOpenAIRerank, c)
 }

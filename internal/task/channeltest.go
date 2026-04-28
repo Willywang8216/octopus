@@ -438,6 +438,15 @@ func buildChannelTestRequest(channelType outbound.OutboundType, modelName string
 			EmbeddingInput: &tmodel.EmbeddingInput{Single: &input},
 			RawAPIFormat:   tmodel.APIFormatOpenAIEmbedding,
 		}
+	case outbound.IsRerankChannelType(channelType):
+		return &tmodel.InternalLLMRequest{
+			Model: modelName,
+			RerankInput: &tmodel.RerankInput{
+				Query:     "ping",
+				Documents: []tmodel.RerankDoc{{Text: "pong"}},
+			},
+			RawAPIFormat: tmodel.APIFormatOpenAIRerank,
+		}
 	case outbound.IsChatChannelType(channelType):
 		ping := "ping"
 		max := int64(1)

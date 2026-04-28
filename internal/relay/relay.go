@@ -119,6 +119,10 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 			iter.Skip(channel.ID, usedKey.ID, channel.Name, "channel type not compatible with embedding request")
 			continue
 		}
+		if internalRequest.IsRerankRequest() && !outbound.IsRerankChannelType(channel.Type) {
+			iter.Skip(channel.ID, usedKey.ID, channel.Name, "channel type not compatible with rerank request")
+			continue
+		}
 		if internalRequest.IsChatRequest() && !outbound.IsChatChannelType(channel.Type) {
 			iter.Skip(channel.ID, usedKey.ID, channel.Name, "channel type not compatible with chat request")
 			continue
