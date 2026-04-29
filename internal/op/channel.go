@@ -240,6 +240,13 @@ func ChannelUpdate(req *model.ChannelUpdateRequest, ctx context.Context) (*model
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
+	// Cascade delete probe results for any keys that were just removed.
+	for _, deletedKeyID := range req.KeysToDelete {
+		if err := TestResultsDelByKey(ctx, req.ID, deletedKeyID); err != nil {
+			log.Warnf("failed to delete test results for channel %d key %d: %v", req.ID, deletedKeyID, err)
+		}
+	}
+
 	// 刷新缓存并返回最新数据
 	if err := channelRefreshCacheByID(req.ID, ctx); err != nil {
 		return nil, err
@@ -321,6 +328,9 @@ func ChannelDel(id int, ctx context.Context) error {
 		}
 	}
 	StatsChannelDel(id)
+	if err := TestResultsDelByChannel(ctx, id); err != nil {
+		log.Warnf("failed to delete test results for channel %d: %v", id, err)
+	}
 
 	// 刷新受影响的分组缓存
 	for _, groupID := range affectedGroupIDs {

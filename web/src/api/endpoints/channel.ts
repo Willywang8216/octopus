@@ -3,6 +3,43 @@ import { apiClient } from '../client';
 import { logger } from '@/lib/logger';
 import { formatCount, formatMoney, formatTime } from '@/lib/utils';
 import { StatsChannel, type StatsMetricsFormatted } from './stats';
+
+/**
+ * 渠道健康度
+ */
+export type ChannelHealth = 'alive' | 'flaky' | 'zombie' | 'dead' | 'unknown';
+export type ChannelErrorClass = '' | 'network' | 'auth_or_quota' | 'upstream_error' | 'other';
+
+export type ChannelKeyModelStatus = {
+    id: number;
+    channel_id: number;
+    key_id: number;
+    model_name: string;
+    ok: boolean;
+    status_code: number;
+    latency_ms: number;
+    last_error: string;
+    error_class: ChannelErrorClass;
+    last_tested_at: number; // unix seconds
+};
+
+export type ChannelTestSummary = {
+    total: number;
+    ok: number;
+    failed: number;
+    last_tested_at: number;
+    health: ChannelHealth;
+};
+
+export type ChannelTestResponse = {
+    summary: ChannelTestSummary;
+    results: ChannelKeyModelStatus[];
+};
+
+export type ChannelTestAllResponse = {
+    results: Record<string, ChannelTestResponse>;
+};
+
 /**
  * 渠道类型枚举
  */
@@ -66,6 +103,8 @@ export type Channel = {
     channel_proxy?: string | null;
     match_regex?: string | null;
     stats: StatsChannel;
+    health?: ChannelHealth;
+    test_summary?: ChannelTestSummary | null;
 };
 
 // Internal type: backend may return null for slice fields; normalize to [] in select()
@@ -73,6 +112,8 @@ type ChannelServer = Omit<Channel, 'base_urls' | 'custom_header' | 'keys'> & {
     base_urls: BaseUrl[] | null;
     custom_header: CustomHeader[] | null;
     keys: ChannelKey[] | null;
+    health?: ChannelHealth;
+    test_summary?: ChannelTestSummary | null;
 };
 
 /**
@@ -152,6 +193,8 @@ export function useChannelList() {
                 base_urls: item.base_urls ?? [],
                 custom_header: item.custom_header ?? [],
                 keys: item.keys ?? [],
+                health: item.health ?? 'unknown',
+                test_summary: item.test_summary ?? null,
             }) satisfies Channel,
             formatted: {
                 input_token: formatCount(item.stats.input_token),
@@ -360,6 +403,72 @@ export function useSyncChannel() {
         },
         onError: (error) => {
             logger.error('渠道同步失败:', error);
+        },
+    });
+}
+
+/**
+ * Probe a single channel — runs through every (enabled key × model) combo.
+ */
+export function useTestChannel() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (channelId: number) => {
+            return apiClient.post<ChannelTestResponse>('/api/v1/channel/test', { channel_id: channelId });
+        },
+        onSuccess: (_data, channelId) => {
+            logger.log('Channel probe complete:', channelId);
+            queryClient.invalidateQueries({ queryKey: ['channels', 'list'] });
+            queryClient.invalidateQueries({ queryKey: ['channels', 'test-results'] });
+        },
+        onError: (error) => {
+            logger.error('Channel probe failed:', error);
+        },
+    });
+}
+
+/**
+ * Probe every enabled channel.
+ */
+export function useTestAllChannels() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async () => {
+            return apiClient.post<ChannelTestAllResponse>('/api/v1/channel/test-all');
+        },
+        onSuccess: () => {
+            logger.log('All channels probed');
+            queryClient.invalidateQueries({ queryKey: ['channels', 'list'] });
+            queryClient.invalidateQueries({ queryKey: ['channels', 'test-results'] });
+        },
+        onError: (error) => {
+            logger.error('Test-all failed:', error);
+        },
+    });
+}
+
+/**
+ * Read cached test results for a single channel.
+ */
+export function useChannelTestResults(channelId: number) {
+    return useQuery({
+        queryKey: ['channels', 'test-results', channelId],
+        queryFn: async () => {
+            return apiClient.get<ChannelTestResponse>(
+                `/api/v1/channel/test-results?channel_id=${channelId}`
+            );
+        },
+    });
+}
+
+/**
+ * Read cached test results for every channel.
+ */
+export function useAllChannelTestResults() {
+    return useQuery({
+        queryKey: ['channels', 'test-results', 'all'],
+        queryFn: async () => {
+            return apiClient.get<ChannelTestAllResponse>('/api/v1/channel/test-results');
         },
     });
 }

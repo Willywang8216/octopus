@@ -81,8 +81,22 @@
                     "all": "全部模型",
                     "priced": "仅收费",
                     "free": "仅免费"
+                },
+                "health": {
+                    "title": "健康度",
+                    "all": "全部",
+                    "alive": "正常",
+                    "flaky": "不稳定",
+                    "zombie": "僵尸",
+                    "dead": "已死",
+                    "unknown": "未知"
                 }
             }
+        },
+        "channel": {
+            "testAll": "测试所有渠道",
+            "testAllSuccess": "所有渠道测试完成",
+            "testAllFailed": "渠道测试失败"
         }
     },
     "common": {
@@ -449,6 +463,13 @@
         }
     },
     "channel": {
+        "health": {
+            "alive": "正常",
+            "flaky": "不稳定",
+            "zombie": "僵尸",
+            "dead": "已死",
+            "unknown": "未知"
+        },
         "card": {
             "requestCount": "请求次数",
             "totalCost": "总成本",
@@ -458,6 +479,16 @@
             }
         },
         "detail": {
+            "test": {
+                "testAll": "测试所有模型",
+                "testing": "测试中…",
+                "toastSuccess": "渠道测试完成",
+                "toastFailed": "渠道测试失败",
+                "ok": "通过",
+                "lastError": "最近错误",
+                "unknownError": "未知错误",
+                "latency": "延迟"
+            },
             "title": {
                 "edit": "编辑渠道",
                 "view": "渠道详情"

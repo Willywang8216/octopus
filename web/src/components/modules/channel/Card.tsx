@@ -8,6 +8,7 @@ import { CheckCircle2, DollarSign, Key, Layers, MessageSquare, XCircle } from 'l
 import { type StatsMetricsFormatted } from '@/api/endpoints/stats';
 import { type Channel, useEnableChannel } from '@/api/endpoints/channel';
 import { CardContent } from './CardContent';
+import { HealthPill } from './HealthPill';
 import { useTranslations } from 'next-intl';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/animate-ui/components/animate/tooltip';
 import { Switch } from '@/components/ui/switch';
@@ -52,12 +53,15 @@ export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; st
             <MorphingDialogTrigger className="w-full">
                 <article className="flex flex-col gap-4 rounded-3xl border border-border bg-card text-card-foreground p-4 transition-all duration-300">
                     <header className="relative flex items-center justify-between gap-2">
-                        <Tooltip side="top" sideOffset={10} align="center">
-                            <TooltipTrigger asChild>
-                                <h3 className="text-lg font-bold truncate min-w-0">{channel.name}</h3>
-                            </TooltipTrigger>
-                            <TooltipContent key={channel.name}>{channel.name}</TooltipContent>
-                        </Tooltip>
+                        <div className="flex items-center gap-2 min-w-0">
+                            <Tooltip side="top" sideOffset={10} align="center">
+                                <TooltipTrigger asChild>
+                                    <h3 className="text-lg font-bold truncate min-w-0">{channel.name}</h3>
+                                </TooltipTrigger>
+                                <TooltipContent key={channel.name}>{channel.name}</TooltipContent>
+                            </Tooltip>
+                            <HealthPill health={channel.health} />
+                        </div>
                         <Switch
                             checked={channel.enabled}
                             onCheckedChange={handleEnableChange}

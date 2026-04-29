@@ -32,6 +32,11 @@ type Channel struct {
 	ChannelProxy  *string               `json:"channel_proxy"`
 	Stats         *StatsChannel         `json:"stats,omitempty" gorm:"foreignKey:ChannelID"`
 	MatchRegex    *string               `json:"match_regex"`
+
+	// TestSummary and Health are populated at list-time from probe results.
+	// They are not persisted on the channel row.
+	TestSummary *ChannelTestSummary `json:"test_summary,omitempty" gorm:"-"`
+	Health      ChannelHealth       `json:"health,omitempty" gorm:"-"`
 }
 
 type BaseUrl struct {
