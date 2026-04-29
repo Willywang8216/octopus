@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowUpAZ, Clock3, LayoutGrid, List, Plus, Search, SlidersHorizontal, X } from 'lucide-react';
+import { ArrowUpAZ, Clock3, FlaskConical, LayoutGrid, List, Plus, Search, SlidersHorizontal, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
     MorphingDialog,
@@ -16,6 +16,8 @@ import { useNavStore, type NavItem } from '@/components/modules/navbar';
 import { CreateDialogContent as ChannelCreateContent } from '@/components/modules/channel/Create';
 import { CreateDialogContent as GroupCreateContent } from '@/components/modules/group/Create';
 import { CreateDialogContent as ModelCreateContent } from '@/components/modules/model/Create';
+import { useTestAllChannels } from '@/api/endpoints/channel';
+import { toast } from '@/components/common/Toast';
 import { useTranslations } from 'next-intl';
 import { useSearchStore } from './search-store';
 import {
@@ -23,11 +25,14 @@ import {
     TOOLBAR_PAGES,
     type ToolbarPage,
     type ChannelFilter,
+    type ChannelHealthFilter,
     type GroupFilter,
     type ModelFilter,
     type ToolbarSortField,
     type ToolbarSortOrder,
 } from './view-options-store';
+
+const CHANNEL_HEALTH_FILTER_OPTIONS: ChannelHealthFilter[] = ['all', 'alive', 'flaky', 'zombie', 'dead', 'unknown'];
 
 const CHANNEL_FILTER_OPTIONS: ChannelFilter[] = ['all', 'enabled', 'disabled'];
 const GROUP_FILTER_OPTIONS: GroupFilter[] = ['all', 'with-members', 'empty'];
@@ -75,11 +80,14 @@ export function Toolbar() {
     const setSortConfig = useToolbarViewOptionsStore((s) => s.setSortConfig);
     const setSortOrder = useToolbarViewOptionsStore((s) => s.setSortOrder);
     const channelFilter = useToolbarViewOptionsStore((s) => s.channelFilter);
+    const channelHealthFilter = useToolbarViewOptionsStore((s) => s.channelHealthFilter);
     const groupFilter = useToolbarViewOptionsStore((s) => s.groupFilter);
     const modelFilter = useToolbarViewOptionsStore((s) => s.modelFilter);
     const setChannelFilter = useToolbarViewOptionsStore((s) => s.setChannelFilter);
+    const setChannelHealthFilter = useToolbarViewOptionsStore((s) => s.setChannelHealthFilter);
     const setGroupFilter = useToolbarViewOptionsStore((s) => s.setGroupFilter);
     const setModelFilter = useToolbarViewOptionsStore((s) => s.setModelFilter);
+    const testAll = useTestAllChannels();
     const [expandedSearchItem, setExpandedSearchItem] = useState<ToolbarPage | null>(null);
     const searchExpanded = expandedSearchItem === toolbarItem;
 
@@ -317,9 +325,56 @@ export function Toolbar() {
                                     ))}
                                 </div>
                             </div>
+
+                            {toolbarItem === 'channel' && (
+                                <div className="grid gap-2">
+                                    <p className="text-xs font-medium text-muted-foreground">{t('popover.filter.health.title')}</p>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        {CHANNEL_HEALTH_FILTER_OPTIONS.map((value) => (
+                                            <button
+                                                key={value}
+                                                type="button"
+                                                onClick={() => setChannelHealthFilter(value)}
+                                                className={cn(
+                                                    'h-8 rounded-lg border text-xs font-medium inline-flex items-center justify-center gap-1.5 transition-colors',
+                                                    channelHealthFilter === value
+                                                        ? 'border-primary/30 bg-primary text-primary-foreground'
+                                                        : 'border-border bg-muted/20 text-foreground hover:bg-muted/30'
+                                                )}
+                                            >
+                                                {t(`popover.filter.health.${value}`)}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </PopoverContent>
                 </Popover>
+
+                {toolbarItem === 'channel' && (
+                    <button
+                        type="button"
+                        aria-label={t('channel.testAll')}
+                        disabled={testAll.isPending}
+                        onClick={() => {
+                            testAll.mutate(undefined, {
+                                onSuccess: () => toast.success(t('channel.testAllSuccess')),
+                                onError: (e) => toast.error(t('channel.testAllFailed'), { description: e.message }),
+                            });
+                        }}
+                        className={buttonVariants({
+                            variant: 'ghost',
+                            size: 'icon',
+                            className: cn(
+                                'rounded-xl transition-none hover:bg-transparent text-muted-foreground hover:text-foreground',
+                                testAll.isPending && 'opacity-60'
+                            ),
+                        })}
+                    >
+                        <FlaskConical className={cn('size-4 transition-colors duration-300', testAll.isPending && 'animate-pulse')} />
+                    </button>
+                )}
 
                 {/* 创建按钮 */}
                 <MorphingDialog>

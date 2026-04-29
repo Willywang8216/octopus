@@ -81,8 +81,22 @@
                     "all": "全部模型",
                     "priced": "僅收費",
                     "free": "僅免費"
+                },
+                "health": {
+                    "title": "健康度",
+                    "all": "全部",
+                    "alive": "正常",
+                    "flaky": "不穩定",
+                    "zombie": "殭屍",
+                    "dead": "已死",
+                    "unknown": "未知"
                 }
             }
+        },
+        "channel": {
+            "testAll": "測試所有渠道",
+            "testAllSuccess": "所有渠道測試完成",
+            "testAllFailed": "渠道測試失敗"
         }
     },
     "common": {
@@ -449,6 +463,13 @@
         }
     },
     "channel": {
+        "health": {
+            "alive": "正常",
+            "flaky": "不穩定",
+            "zombie": "殭屍",
+            "dead": "已死",
+            "unknown": "未知"
+        },
         "card": {
             "requestCount": "請求次數",
             "totalCost": "總成本",
@@ -458,6 +479,16 @@
             }
         },
         "detail": {
+            "test": {
+                "testAll": "測試所有模型",
+                "testing": "測試中…",
+                "toastSuccess": "渠道測試完成",
+                "toastFailed": "渠道測試失敗",
+                "ok": "通過",
+                "lastError": "最近錯誤",
+                "unknownError": "未知錯誤",
+                "latency": "延遲"
+            },
             "title": {
                 "edit": "編輯供應源",
                 "view": "供應源詳情"
