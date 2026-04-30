@@ -15,6 +15,7 @@ export function Channel() {
     const sortField = useToolbarViewOptionsStore((s) => s.getSortField(pageKey));
     const sortOrder = useToolbarViewOptionsStore((s) => s.getSortOrder(pageKey));
     const filter = useToolbarViewOptionsStore((s) => s.channelFilter);
+    const healthFilter = useToolbarViewOptionsStore((s) => s.channelHealthFilter);
 
     const sortedChannels = useMemo(() => {
         if (!channelsData) return [];
@@ -30,16 +31,18 @@ export function Channel() {
         const term = searchTerm.toLowerCase().trim();
         const byName = !term ? sortedChannels : sortedChannels.filter((c) => c.raw.name.toLowerCase().includes(term));
 
-        if (filter === 'enabled') return byName.filter((c) => c.raw.enabled);
-        if (filter === 'disabled') return byName.filter((c) => !c.raw.enabled);
-        if (filter === 'funding-issue') return byName.filter((c) =>
-            c.raw.status_tag === 'insufficient_funds' ||
-            c.raw.status_tag === 'quota_exceeded' ||
-            c.raw.keys.some((k) => k.status_tag === 'insufficient_funds' || k.status_tag === 'quota_exceeded')
-        );
+        const byEnabled = filter === 'enabled'
+            ? byName.filter((c) => c.raw.enabled)
+            : filter === 'disabled'
+                ? byName.filter((c) => !c.raw.enabled)
+                : byName;
 
-        return byName;
-    }, [sortedChannels, searchTerm, filter]);
+        const byHealth = healthFilter === 'all'
+            ? byEnabled
+            : byEnabled.filter((c) => (c.raw.health ?? 'unknown') === healthFilter);
+
+        return byHealth;
+    }, [sortedChannels, searchTerm, filter, healthFilter]);
 
     return (
         <div className="flex h-full min-h-0 flex-col">

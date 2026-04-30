@@ -41,12 +41,13 @@ type Channel struct {
 	CustomHeader  []CustomHeader        `json:"custom_header" gorm:"serializer:json"`
 	ParamOverride *string               `json:"param_override"`
 	ChannelProxy  *string               `json:"channel_proxy"`
-	Stats          *StatsChannel         `json:"stats,omitempty" gorm:"foreignKey:ChannelID"`
-	MatchRegex     *string               `json:"match_regex"`
-	StatusTag              string                `json:"status_tag" gorm:"default:''"`
-	AutoDisabledAt         *int64                `json:"auto_disabled_at"`
-	AutoDisableThreshold   *int                  `json:"auto_disable_threshold"`    // Per-channel override; nil = use global
-	AutoDisableRetryHours  *int                  `json:"auto_disable_retry_hours"`  // Per-channel override; nil = use global
+	Stats         *StatsChannel         `json:"stats,omitempty" gorm:"foreignKey:ChannelID"`
+	MatchRegex    *string               `json:"match_regex"`
+
+	// TestSummary and Health are populated at list-time from probe results.
+	// They are not persisted on the channel row.
+	TestSummary *ChannelTestSummary `json:"test_summary,omitempty" gorm:"-"`
+	Health      ChannelHealth       `json:"health,omitempty" gorm:"-"`
 }
 
 type BaseUrl struct {

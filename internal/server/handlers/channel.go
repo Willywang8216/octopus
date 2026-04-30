@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bestruirui/octopus/internal/helper"
@@ -45,6 +46,14 @@ func init() {
 		AddRoute(
 			router.NewRoute("/fetch-model", http.MethodPost).
 				Handle(fetchModel),
+		).
+		AddRoute(
+			router.NewRoute("/test", http.MethodPost).
+				Handle(testChannel),
+		).
+		AddRoute(
+			router.NewRoute("/test-all", http.MethodPost).
+				Handle(testAllChannels),
 		)
 	router.NewGroupRouter("/api/v1/channel").
 		Use(middleware.Auth()).
@@ -57,43 +66,8 @@ func init() {
 				Handle(getLastSyncTime),
 		).
 		AddRoute(
-			router.NewRoute("/test/start", http.MethodPost).
-				Handle(startChannelTest),
-		).
-		AddRoute(
-			router.NewRoute("/test/cancel", http.MethodPost).
-				Handle(cancelChannelTest),
-		).
-		AddRoute(
-			router.NewRoute("/test/status", http.MethodGet).
-				Handle(getChannelTestStatus),
-		).
-		AddRoute(
-			router.NewRoute("/test/results", http.MethodGet).
-				Handle(getChannelTestResults),
-		).
-		AddRoute(
-			router.NewRoute("/test/results/:id", http.MethodGet).
-				Handle(getChannelTestResult),
-		)
-	router.NewGroupRouter("/api/v1/channel").
-		Use(middleware.Auth()).
-		Use(middleware.RequireJSON()).
-		AddRoute(
-			router.NewRoute("/check-models", http.MethodPost).
-				Handle(checkModels),
-		).
-		AddRoute(
-			router.NewRoute("/test-model", http.MethodPost).
-				Handle(testModel),
-		).
-		AddRoute(
-			router.NewRoute("/check-duplicate", http.MethodPost).
-				Handle(checkDuplicate),
-		).
-		AddRoute(
-			router.NewRoute("/test-all-models", http.MethodPost).
-				Handle(testAllModels),
+			router.NewRoute("/test-results", http.MethodGet).
+				Handle(getTestResults),
 		)
 }
 
@@ -106,6 +80,22 @@ func listChannel(c *gin.Context) {
 	for i, channel := range channels {
 		stats := op.StatsChannelGet(channel.ID)
 		channels[i].Stats = &stats
+
+		results := op.TestResultsByChannel(channel.ID)
+		summary := model.ChannelTestSummary{Total: len(results)}
+		for _, r := range results {
+			if r.OK {
+				summary.Ok++
+			} else {
+				summary.Failed++
+			}
+			if r.LastTestedAt > summary.LastTestedAt {
+				summary.LastTestedAt = r.LastTestedAt
+			}
+		}
+		summary.Health = helper.DeriveHealth(results)
+		channels[i].Health = summary.Health
+		channels[i].TestSummary = &summary
 	}
 	resp.Success(c, channels)
 }
@@ -240,55 +230,128 @@ func getLastSyncTime(c *gin.Context) {
 	resp.Success(c, time)
 }
 
-// startChannelTestRequest is the optional payload for /channel/test/start.
-// When `channel_ids` is empty or absent, every enabled channel is tested.
-type startChannelTestRequest struct {
-	ChannelIDs []int `json:"channel_ids"`
+// channelTestResponse is the per-channel payload returned by /test and used as
+// the value side of /test-all and /test-results (no channel_id).
+type channelTestResponse struct {
+	Summary model.ChannelTestSummary       `json:"summary"`
+	Results []model.ChannelKeyModelStatus  `json:"results"`
 }
 
-func startChannelTest(c *gin.Context) {
-	var req startChannelTestRequest
-	// Body is optional; ignore parse errors when there is no body to read.
-	if c.Request.ContentLength > 0 {
-		if err := c.ShouldBindJSON(&req); err != nil {
-			resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
-			return
+func summarizeResults(results []model.ChannelKeyModelStatus) model.ChannelTestSummary {
+	summary := model.ChannelTestSummary{Total: len(results)}
+	for _, r := range results {
+		if r.OK {
+			summary.Ok++
+		} else {
+			summary.Failed++
+		}
+		if r.LastTestedAt > summary.LastTestedAt {
+			summary.LastTestedAt = r.LastTestedAt
 		}
 	}
-	if err := task.StartChannelTest(req.ChannelIDs); err != nil {
-		// 409 Conflict communicates "already running" without scaring the
-		// frontend into showing an error toast for what is essentially a
-		// benign duplicate-click.
-		resp.Error(c, http.StatusConflict, err.Error())
-		return
-	}
-	resp.Success(c, task.ChannelTestStatus())
+	summary.Health = helper.DeriveHealth(results)
+	return summary
 }
 
-func cancelChannelTest(c *gin.Context) {
-	task.CancelChannelTest()
-	resp.Success(c, task.ChannelTestStatus())
-}
-
-func getChannelTestStatus(c *gin.Context) {
-	resp.Success(c, task.ChannelTestStatus())
-}
-
-func getChannelTestResults(c *gin.Context) {
-	resp.Success(c, task.ChannelTestAllResults())
-}
-
-func getChannelTestResult(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.Atoi(idStr)
+func runChannelProbe(ctx context.Context, channelID int, sem chan struct{}) (channelTestResponse, error) {
+	ch, err := op.ChannelGet(channelID, ctx)
 	if err != nil {
-		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidParam)
+		return channelTestResponse{}, err
+	}
+	probeResults := helper.ProbeChannel(ctx, ch, sem)
+	statuses := make([]model.ChannelKeyModelStatus, 0, len(probeResults))
+	for _, pr := range probeResults {
+		statuses = append(statuses, pr.ToStatus())
+	}
+	if len(statuses) > 0 {
+		if err := op.TestResultsUpsert(ctx, channelID, statuses); err != nil {
+			return channelTestResponse{}, err
+		}
+	}
+	stored := op.TestResultsByChannel(channelID)
+	return channelTestResponse{
+		Summary: summarizeResults(stored),
+		Results: stored,
+	}, nil
+}
+
+func testChannel(c *gin.Context) {
+	var request struct {
+		ChannelID int `json:"channel_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
 		return
 	}
-	result := task.ChannelTestResult(id)
-	if result == nil {
-		resp.Error(c, http.StatusNotFound, "no test result for this channel")
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
+	defer cancel()
+	out, err := runChannelProbe(ctx, request.ChannelID, helper.NewProbeSem())
+	if err != nil {
+		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	resp.Success(c, result)
+	resp.Success(c, out)
+}
+
+func testAllChannels(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
+	defer cancel()
+
+	channels, err := op.ChannelList(ctx)
+	if err != nil {
+		resp.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	sem := helper.NewProbeSem()
+	results := make(map[string]channelTestResponse, len(channels))
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for i := range channels {
+		ch := channels[i]
+		if !ch.Enabled {
+			continue
+		}
+		wg.Add(1)
+		go func(channelID int) {
+			defer wg.Done()
+			out, err := runChannelProbe(ctx, channelID, sem)
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			results[strconv.Itoa(channelID)] = out
+			mu.Unlock()
+		}(ch.ID)
+	}
+	wg.Wait()
+
+	resp.Success(c, gin.H{"results": results})
+}
+
+func getTestResults(c *gin.Context) {
+	idStr := c.Query("channel_id")
+	if idStr != "" {
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			resp.Error(c, http.StatusBadRequest, resp.ErrInvalidParam)
+			return
+		}
+		stored := op.TestResultsByChannel(id)
+		resp.Success(c, channelTestResponse{
+			Summary: summarizeResults(stored),
+			Results: stored,
+		})
+		return
+	}
+
+	all := op.TestResultsAll()
+	out := make(map[string]channelTestResponse, len(all))
+	for cid, rows := range all {
+		out[strconv.Itoa(cid)] = channelTestResponse{
+			Summary: summarizeResults(rows),
+			Results: rows,
+		}
+	}
+	resp.Success(c, gin.H{"results": out})
 }

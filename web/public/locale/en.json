@@ -82,8 +82,22 @@
                     "all": "All models",
                     "priced": "Priced only",
                     "free": "Free only"
+                },
+                "health": {
+                    "title": "Health",
+                    "all": "All",
+                    "alive": "Alive",
+                    "flaky": "Flaky",
+                    "zombie": "Zombie",
+                    "dead": "Dead",
+                    "unknown": "Unknown"
                 }
             }
+        },
+        "channel": {
+            "testAll": "Test all channels",
+            "testAllSuccess": "All channel probes finished",
+            "testAllFailed": "Channel probes failed"
         }
     },
     "common": {
@@ -469,10 +483,12 @@
         }
     },
     "channel": {
-        "statusTag": {
-            "autoDisabled": "Auto Disabled",
-            "insufficientFunds": "No Funds",
-            "quotaExceeded": "Quota Exceeded"
+        "health": {
+            "alive": "Alive",
+            "flaky": "Flaky",
+            "zombie": "Zombie",
+            "dead": "Dead",
+            "unknown": "Unknown"
         },
         "card": {
             "requestCount": "Requests",
@@ -487,6 +503,16 @@
             }
         },
         "detail": {
+            "test": {
+                "testAll": "Test all models",
+                "testing": "Testing…",
+                "toastSuccess": "Channel probe finished",
+                "toastFailed": "Channel probe failed",
+                "ok": "OK",
+                "lastError": "Last error",
+                "unknownError": "Unknown error",
+                "latency": "Latency"
+            },
             "title": {
                 "edit": "Edit Channel",
                 "view": "Channel Details"
