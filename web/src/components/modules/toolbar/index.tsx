@@ -353,29 +353,6 @@ export function Toolbar() {
                     </PopoverContent>
                 </Popover>
 
-                {toolbarItem === 'channel' && (
-                    <button
-                        type="button"
-                        aria-label={t('channel.testAll')}
-                        disabled={testAll.isPending}
-                        onClick={() => {
-                            testAll.mutate(undefined, {
-                                onSuccess: () => toast.success(t('channel.testAllSuccess')),
-                                onError: (e) => toast.error(t('channel.testAllFailed'), { description: e.message }),
-                            });
-                        }}
-                        className={buttonVariants({
-                            variant: 'ghost',
-                            size: 'icon',
-                            className: cn(
-                                'rounded-xl transition-none hover:bg-transparent text-muted-foreground hover:text-foreground',
-                                testAll.isPending && 'opacity-60'
-                            ),
-                        })}
-                    >
-                        <FlaskConical className={cn('size-4 transition-colors duration-300', testAll.isPending && 'animate-pulse')} />
-                    </button>
-                )}
 
                 {/* 创建按钮 */}
                 {toolbarItem === 'channel' && <TestAllChannelsButton />}
@@ -404,7 +381,6 @@ export function Toolbar() {
 function TestAllChannelsButton() {
     const t = useTranslations('toolbar');
     const tTest = useTranslations('channel.test');
-    const testAll = useTestAllChannels();
     const isPending = testAll.isPending;
     return (
         <button
@@ -413,7 +389,7 @@ function TestAllChannelsButton() {
             disabled={isPending}
             onClick={() => {
                 testAll.mutate(
-                    { include_disabled_keys: true },
+                    { include_disabled_keys: true, include_disabled_channels: true },
                     {
                         onSuccess: (resp) => {
                             const summaries = resp.summaries ?? [];

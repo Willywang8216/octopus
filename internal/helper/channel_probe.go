@@ -235,10 +235,32 @@ func classifyHTTPError(status int, body string) model.ChannelTestErrorClass {
 	}
 	return model.ChannelTestErrorOther
 }
-
 // classifyTransportError handles the case where we never got an HTTP
 // response (DNS, connection refused, TLS, proxy, timeouts, …).
+func ClassifyChannelFailure(status int, err error) (model.ChannelTestErrorClass, string) {
+	if err == nil {
+		return model.ChannelTestErrorNone, ""
+	}
+	if status > 0 {
+		return classifyHTTPError(status, err.Error()), trimMessage(err.Error(), 512)
+	}
+	return classifyTransportError(err), trimMessage(err.Error(), 512)
+}
+
+func HumanChannelFailureReason(class model.ChannelTestErrorClass, msg string) string {
+	switch class {
+	case model.ChannelTestErrorAuth:
+		return "invalid api key"
+	case model.ChannelTestErrorPermission:
+		return "permission denied"
+	case model.ChannelTestErrorQuota:
+		return "insufficient quota / billing"
+	}
+	return trimMessage(msg, 64)
+}
+
 func classifyTransportError(err error) model.ChannelTestErrorClass {
+
 	if err == nil {
 		return model.ChannelTestErrorNone
 	}

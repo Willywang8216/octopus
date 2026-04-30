@@ -556,6 +556,82 @@ func ChannelEnabled(id int, enabled bool, ctx context.Context) error {
 	return nil
 }
 
+func ChannelRuntimeAutoDisableKey(channelID int, key model.ChannelKey, class model.ChannelTestErrorClass, reason string, ctx context.Context) error {
+	if !class.IsAttentionNeeded() {
+		return nil
+	}
+	if channelID == 0 || key.ID == 0 {
+		return fmt.Errorf("invalid channel key")
+	}
+
+	now := time.Now().Unix()
+	key.Enabled = false
+	key.AutoDisabled = true
+	key.DisabledReason = reason
+	key.DisabledClass = class
+	if key.DisabledAt == 0 {
+		key.DisabledAt = now
+	}
+
+	tx := db.GetDB().WithContext(ctx).Begin()
+	if tx.Error != nil {
+		return tx.Error
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	keyUpdates := map[string]interface{}{
+		"enabled":             false,
+		"status_code":         key.StatusCode,
+		"last_use_time_stamp": key.LastUseTimeStamp,
+		"total_cost":          key.TotalCost,
+		"auto_disabled":       true,
+		"disabled_reason":     reason,
+		"disabled_class":      class,
+		"disabled_at":         key.DisabledAt,
+	}
+	if err := tx.Model(&model.ChannelKey{}).
+		Where("id = ? AND channel_id = ?", key.ID, channelID).
+		Updates(keyUpdates).Error; err != nil {
+		tx.Rollback()
+		return fmt.Errorf("auto-disable channel key: %w", err)
+	}
+
+	var enabledKeyCount int64
+	if err := tx.Model(&model.ChannelKey{}).
+		Where("channel_id = ? AND enabled = ?", channelID, true).
+		Count(&enabledKeyCount).Error; err != nil {
+		tx.Rollback()
+		return fmt.Errorf("count enabled channel keys: %w", err)
+	}
+	if enabledKeyCount == 0 {
+		channelUpdates := map[string]interface{}{
+			"enabled":         false,
+			"auto_disabled":   true,
+			"disabled_reason": reason,
+			"disabled_class":  class,
+			"disabled_at":     now,
+		}
+		if err := tx.Model(&model.Channel{}).
+			Where("id = ?", channelID).
+			Updates(channelUpdates).Error; err != nil {
+			tx.Rollback()
+			return fmt.Errorf("auto-disable channel: %w", err)
+		}
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return fmt.Errorf("commit runtime auto-disable: %w", err)
+	}
+	if err := channelRefreshCacheByID(channelID, ctx); err != nil {
+		return err
+	}
+	return nil
+}
+
 func ChannelDel(id int, ctx context.Context) error {
 	ch, ok := channelCache.Get(id)
 	if !ok {

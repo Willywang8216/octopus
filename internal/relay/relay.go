@@ -222,10 +222,28 @@ func (ra *relayAttempt) attempt() attemptResult {
 
 	// ====== 失败 ======
 	billingIssue := isBillingIssue(statusCode, fwdErr)
-	op.ChannelMarkKeyFailure(ra.usedKey, statusCode, fwdErr, billingIssue)
-	if err := op.ChannelCheckAutoDisable(ra.channel.ID, billingIssue, ra.c.Request.Context()); err != nil {
-		log.Warnf("failed to check channel auto disable (channel=%d): %v", ra.channel.ID, err)
+op.ChannelMarkKeyFailure(ra.usedKey, statusCode, fwdErr, billingIssue)
+
+errorClass, disabledReason := helper.ClassifyChannelFailure(statusCode, fwdErr)
+if errorClass.IsAttentionNeeded() {
+	disabledReason = helper.HumanChannelFailureReason(errorClass, disabledReason)
+	ra.usedKey.Enabled = false
+	ra.usedKey.AutoDisabled = true
+	ra.usedKey.DisabledClass = errorClass
+	ra.usedKey.DisabledReason = disabledReason
+	if ra.usedKey.DisabledAt == 0 {
+		ra.usedKey.DisabledAt = time.Now().Unix()
 	}
+	if err := op.ChannelRuntimeAutoDisableKey(ra.channel.ID, ra.usedKey, errorClass, disabledReason, ra.c.Request.Context()); err != nil {
+		log.Warnf("failed to auto-disable key %d on channel %s: %v", ra.usedKey.ID, ra.channel.Name, err)
+		op.ChannelKeyUpdate(ra.usedKey)
+	}
+}
+
+if err := op.ChannelCheckAutoDisable(ra.channel.ID, billingIssue, ra.c.Request.Context()); err != nil {
+	log.Warnf("failed to check channel auto disable (channel=%d): %v", ra.channel.ID, err)
+}
+
 	span.End(dbmodel.AttemptFailed, statusCode, fwdErr.Error())
 
 	// Channel 维度统计
