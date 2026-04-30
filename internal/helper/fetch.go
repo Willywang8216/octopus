@@ -191,7 +191,6 @@ func fetchOpenAIModels(client *http.Client, ctx context.Context, request model.C
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
@@ -199,8 +198,7 @@ func fetchOpenAIModels(client *http.Client, ctx context.Context, request model.C
 	}
 
 	var result model.OpenAIModelList
-
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := decodeModelListResponse(resp, &result); err != nil {
 		return nil, err
 	}
 
@@ -239,11 +237,9 @@ func fetchGeminiModels(client *http.Client, ctx context.Context, request model.C
 		if err != nil {
 			return nil, err
 		}
-		defer resp.Body.Close()
 
 		var result model.GeminiModelList
-
-		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		if err := decodeModelListResponse(resp, &result); err != nil {
 			return nil, err
 		}
 
@@ -295,11 +291,9 @@ func fetchAnthropicModels(client *http.Client, ctx context.Context, request mode
 		if err != nil {
 			return nil, err
 		}
-		defer resp.Body.Close()
 
 		var result model.AnthropicModelList
-
-		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		if err := decodeModelListResponse(resp, &result); err != nil {
 			return nil, err
 		}
 
@@ -317,4 +311,36 @@ func fetchAnthropicModels(client *http.Client, ctx context.Context, request mode
 		return fetchOpenAIModels(client, ctx, request)
 	}
 	return allModels, nil
+}
+
+const maxModelListResponseBytes = 4 << 20
+
+func decodeModelListResponse(resp *http.Response, out any) error {
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxModelListResponseBytes))
+	if err != nil {
+		return fmt.Errorf("read model list response: %w", err)
+	}
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("fetch models returned HTTP %d: %s", resp.StatusCode, responseSnippet(body))
+	}
+
+	if err := json.Unmarshal(body, out); err != nil {
+		return fmt.Errorf("fetch models returned invalid JSON (HTTP %d, content-type %q): %w; body: %s", resp.StatusCode, resp.Header.Get("Content-Type"), err, responseSnippet(body))
+	}
+	return nil
+}
+
+func responseSnippet(body []byte) string {
+	s := strings.TrimSpace(string(body))
+	if s == "" {
+		return "<empty body>"
+	}
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) > 300 {
+		return s[:300] + "..."
+	}
+	return s
 }
