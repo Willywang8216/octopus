@@ -15,6 +15,8 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/components/common/Toast';
 import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
+import { AttentionTag } from './TestResults';
 
 export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; stats: StatsMetricsFormatted; layout?: 'grid' | 'list' }) {
     const t = useTranslations('channel.card');
@@ -65,20 +67,13 @@ export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; st
         ...splitModels(channel.custom_model),
     ]).size;
     const enabledKeyCount = channel.keys.filter((item) => item.enabled).length;
-    const hasBillingIssue = channel.tags.includes('billing_issue');
-    const isAutoDisabled = channel.tags.includes('auto_disabled');
+    const autoDisabledKeyCount = channel.keys.filter((item) => item.auto_disabled).length;
 
-    const showStatus = (channel.enabled && enabledKeyCount === 0 && channel.keys.length > 0) || (!channel.enabled && channel.auto_disabled);
-    const statusSource = `${channel.disabled_reason ?? ''} ${channel.keys.map((k) => k.remark ?? '').join(' ')}`;
-    const hasNoMoney = showStatus && statusSource.includes('category=no_money');
-    const hasBadGateway = showStatus && statusSource.includes('category=bad_gateway');
-    const statusLabel = hasNoMoney
-        ? t('status.noMoney')
-        : hasBadGateway
-            ? t('status.badGateway')
-            : showStatus
-                ? t('status.autoDisabled')
-                : '';
+    // Aggregate the most recent probe outcome stored on each key.
+    const testTotalSuccess = channel.keys.reduce((s, k) => s + (k.last_test_success ?? 0), 0);
+    const testTotalFailed = channel.keys.reduce((s, k) => s + (k.last_test_failed ?? 0), 0);
+    const testTotal = testTotalSuccess + testTotalFailed;
+    const hasTestData = testTotal > 0;
 
     const handleEnableChange = (checked: boolean) => {
         enableChannel.mutate(
@@ -116,22 +111,64 @@ export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; st
                         />
                     </header>
 
-                    {(hasBillingIssue || isAutoDisabled) && (
-                        <div className="flex flex-wrap gap-2">
-                            {isAutoDisabled && (
-                                <Badge variant="secondary" className="bg-orange-500/15 text-orange-700 dark:text-orange-400">
-                                    <AlertTriangle className="mr-1 size-3" />
-                                    {t('tag.autoDisabled')}
+                    {/* Tag bar: surface the things that previously required opening the dialog —
+                        key counts, auto-disabled status with reason, and the latest probe outcome. */}
+                    <div className="flex flex-wrap items-center gap-1.5 -mt-1">
+                        <Tooltip side="top" sideOffset={6} align="center">
+                            <TooltipTrigger asChild>
+                                <Badge
+                                    variant="secondary"
+                                    className={cn(
+                                        'h-5 px-1.5 text-[10px] gap-1 inline-flex items-center',
+                                        enabledKeyCount === 0 && channel.keys.length > 0
+                                            ? 'bg-red-500/15 text-red-700 dark:text-red-400'
+                                            : autoDisabledKeyCount > 0
+                                                ? 'bg-orange-500/15 text-orange-700 dark:text-orange-400'
+                                                : ''
+                                    )}
+                                >
+                                    <Key className="size-3" />
+                                    {enabledKeyCount}/{channel.keys.length}
                                 </Badge>
-                            )}
-                            {hasBillingIssue && (
-                                <Badge variant="secondary" className="bg-red-500/15 text-red-700 dark:text-red-400">
-                                    <DollarSign className="mr-1 size-3" />
-                                    {t('tag.billingIssue')}
-                                </Badge>
-                            )}
-                        </div>
-                    )}
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                {tSections('keys')}: {enabledKeyCount} {t('enabledShort')} / {channel.keys.length}
+                                {autoDisabledKeyCount > 0 && (
+                                    <>
+                                        {' · '}
+                                        {autoDisabledKeyCount} {t('autoDisabledShort')}
+                                    </>
+                                )}
+                            </TooltipContent>
+                        </Tooltip>
+                        <Badge variant="secondary" className="h-5 px-1.5 text-[10px] gap-1 inline-flex items-center">
+                            <Layers className="size-3" />
+                            {modelCount}
+                        </Badge>
+                        {hasTestData && (
+                            <Badge
+                                variant="secondary"
+                                className={cn(
+                                    'h-5 px-1.5 text-[10px] gap-1 inline-flex items-center',
+                                    testTotalFailed === 0
+                                        ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400'
+                                        : testTotalSuccess === 0
+                                            ? 'bg-red-500/15 text-red-700 dark:text-red-400'
+                                            : 'bg-orange-500/15 text-orange-700 dark:text-orange-400'
+                                )}
+                                title={`${testTotalSuccess}/${testTotal} models passing`}
+                            >
+                                <CheckCircle2 className="size-3" />
+                                {testTotalSuccess}/{testTotal}
+                            </Badge>
+                        )}
+                        {channel.auto_disabled && (
+                            <AttentionTag
+                                cls={channel.disabled_class}
+                                reason={channel.disabled_reason}
+                            />
+                        )}
+                    </div>
 
                     {isListLayout ? (
                         <dl className="grid grid-cols-2 gap-2 lg:grid-cols-6">

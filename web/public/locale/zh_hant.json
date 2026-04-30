@@ -53,6 +53,7 @@
         "setting": "設定"
     },
     "toolbar": {
+        "testAllAriaLabel": "測試所有供應源",
         "popover": {
             "ariaLabel": "檢視選項",
             "layout": "佈局",
@@ -493,13 +494,42 @@
         "card": {
             "requestCount": "請求次數",
             "totalCost": "總成本",
-            "tag": {
-                "autoDisabled": "自動停用",
-                "billingIssue": "餘額/額度問題"
-            },
+            "enabledShort": "啟用",
+            "autoDisabledShort": "自動停用",
             "toast": {
                 "enabled": "供應源已啟用",
                 "disabled": "供應源已停用"
+            }
+        },
+        "test": {
+            "sectionTitle": "測試結果",
+            "runButton": "測試模型",
+            "running": "測試中...",
+            "passing": "通過",
+            "keys": "Key",
+            "models": "模型",
+            "lastTested": "最近測試",
+            "emptyHint": "點擊「測試模型」對每個 (Key × 模型) 組合發起探測，失敗原因會與上游返回一致。",
+            "noModelsTested": "此 Key 暫無測試結果",
+            "noKeysTested": "尚未測試任何 Key",
+            "channelDisabledTitle": "供應源已自動停用 — 需要關注",
+            "channelDisabledHint": "上次探測時此供應源的所有 Key 均失敗。下次定時健康檢查會自動重試，您也可以切換開關手動覆蓋。",
+            "toastDone": "測試完成 — {pass}/{total} 個模型通過",
+            "toastDoneAll": "已測試 {channels} 個供應源 — {pass}/{total} 個模型通過",
+            "keyResultTooltip": "此 Key 上 {pass}/{total} 個模型通過",
+            "errorClass": {
+                "auth_invalid": "API Key 無效",
+                "permission_denied": "權限被拒",
+                "insufficient_quota": "餘額/配額不足",
+                "rate_limited": "限流",
+                "model_not_found": "模型不存在",
+                "bad_request": "請求錯誤",
+                "server_error": "上游 5xx",
+                "network_error": "網路錯誤",
+                "timeout": "逾時",
+                "transform_error": "本機錯誤",
+                "unsupported_channel": "不支援的供應源類型",
+                "other": "失敗"
             }
         },
         "detail": {

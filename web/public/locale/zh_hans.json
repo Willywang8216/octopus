@@ -53,6 +53,7 @@
         "setting": "设置"
     },
     "toolbar": {
+        "testAllAriaLabel": "测试所有渠道",
         "popover": {
             "ariaLabel": "视图选项",
             "layout": "布局",
@@ -493,13 +494,42 @@
         "card": {
             "requestCount": "请求次数",
             "totalCost": "总成本",
-            "tag": {
-                "autoDisabled": "自动禁用",
-                "billingIssue": "余额/额度问题"
-            },
+            "enabledShort": "启用",
+            "autoDisabledShort": "自动禁用",
             "toast": {
                 "enabled": "渠道已启用",
                 "disabled": "渠道已禁用"
+            }
+        },
+        "test": {
+            "sectionTitle": "测试结果",
+            "runButton": "测试模型",
+            "running": "测试中...",
+            "passing": "通过",
+            "keys": "Key",
+            "models": "模型",
+            "lastTested": "最近测试",
+            "emptyHint": "点击「测试模型」对每个 (Key × 模型) 组合发起探测，失败原因会与上游返回一致。",
+            "noModelsTested": "此 Key 暂无测试结果",
+            "noKeysTested": "尚未测试任何 Key",
+            "channelDisabledTitle": "渠道已自动禁用 — 需要关注",
+            "channelDisabledHint": "上次探测时此渠道的所有 Key 均失败。下次定时健康检查会自动重试，您也可以切换开关手动覆盖。",
+            "toastDone": "测试完成 — {pass}/{total} 个模型通过",
+            "toastDoneAll": "已测试 {channels} 个渠道 — {pass}/{total} 个模型通过",
+            "keyResultTooltip": "此 Key 上 {pass}/{total} 个模型通过",
+            "errorClass": {
+                "auth_invalid": "API Key 无效",
+                "permission_denied": "权限被拒",
+                "insufficient_quota": "余额/配额不足",
+                "rate_limited": "限流",
+                "model_not_found": "模型不存在",
+                "bad_request": "请求错误",
+                "server_error": "上游 5xx",
+                "network_error": "网络错误",
+                "timeout": "超时",
+                "transform_error": "本地错误",
+                "unsupported_channel": "不支持的渠道类型",
+                "other": "失败"
             }
         },
         "detail": {

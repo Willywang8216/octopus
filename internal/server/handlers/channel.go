@@ -66,8 +66,8 @@ func init() {
 				Handle(getLastSyncTime),
 		).
 		AddRoute(
-			router.NewRoute("/test-results", http.MethodGet).
-				Handle(getTestResults),
+			router.NewRoute("/test-results/:id", http.MethodGet).
+				Handle(getChannelTestResults),
 		)
 }
 
@@ -230,128 +230,104 @@ func getLastSyncTime(c *gin.Context) {
 	resp.Success(c, time)
 }
 
-// channelTestResponse is the per-channel payload returned by /test and used as
-// the value side of /test-all and /test-results (no channel_id).
-type channelTestResponse struct {
-	Summary model.ChannelTestSummary       `json:"summary"`
-	Results []model.ChannelKeyModelStatus  `json:"results"`
-}
-
-func summarizeResults(results []model.ChannelKeyModelStatus) model.ChannelTestSummary {
-	summary := model.ChannelTestSummary{Total: len(results)}
-	for _, r := range results {
-		if r.OK {
-			summary.Ok++
-		} else {
-			summary.Failed++
-		}
-		if r.LastTestedAt > summary.LastTestedAt {
-			summary.LastTestedAt = r.LastTestedAt
-		}
-	}
-	summary.Health = helper.DeriveHealth(results)
-	return summary
-}
-
-func runChannelProbe(ctx context.Context, channelID int, sem chan struct{}) (channelTestResponse, error) {
-	ch, err := op.ChannelGet(channelID, ctx)
-	if err != nil {
-		return channelTestResponse{}, err
-	}
-	probeResults := helper.ProbeChannel(ctx, ch, sem)
-	statuses := make([]model.ChannelKeyModelStatus, 0, len(probeResults))
-	for _, pr := range probeResults {
-		statuses = append(statuses, pr.ToStatus())
-	}
-	if len(statuses) > 0 {
-		if err := op.TestResultsUpsert(ctx, channelID, statuses); err != nil {
-			return channelTestResponse{}, err
-		}
-	}
-	stored := op.TestResultsByChannel(channelID)
-	return channelTestResponse{
-		Summary: summarizeResults(stored),
-		Results: stored,
-	}, nil
-}
-
+// testChannel runs the probe matrix for a single channel and returns a
+// structured per-key/per-model summary so the UI can render the results.
 func testChannel(c *gin.Context) {
 	var request struct {
-		ChannelID int `json:"channel_id" binding:"required"`
+		ID     int      `json:"id"`
+		Models []string `json:"models,omitempty"`
+		// IncludeDisabledKeys allows the UI to (re)test keys the user has
+		// manually disabled or that the auto-disable logic has switched off.
+		IncludeDisabledKeys bool `json:"include_disabled_keys,omitempty"`
 	}
 	if err := c.ShouldBindJSON(&request); err != nil {
 		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
 		return
 	}
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
+	if request.ID <= 0 {
+		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidParam)
+		return
+	}
+	// Tests run against upstream LLM providers and can take a while when
+	// there are many keys × models, so give them a generous deadline
+	// independent of the inbound request timeout.
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Minute)
 	defer cancel()
-	out, err := runChannelProbe(ctx, request.ChannelID, helper.NewProbeSem())
+	summary, err := task.ChannelTestRun(ctx, request.ID, request.Models, request.IncludeDisabledKeys)
 	if err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	resp.Success(c, out)
+	resp.Success(c, summary)
 }
 
+// testAllChannels fans out the probe matrix across every channel and returns
+// per-channel summaries. Channels are tested sequentially to bound load on
+// the server, but each channel internally runs its key×model matrix
+// concurrently.
 func testAllChannels(c *gin.Context) {
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
-	defer cancel()
+	var request struct {
+		IncludeDisabledKeys bool `json:"include_disabled_keys,omitempty"`
+		// IncludeDisabledChannels allows the user to also probe channels
+		// that have been disabled (manually or automatically). Without this
+		// only enabled channels are scanned.
+		IncludeDisabledChannels bool `json:"include_disabled_channels,omitempty"`
+	}
+	// JSON body is optional for this endpoint; ignore parse errors so an
+	// empty body still works.
+	_ = c.ShouldBindJSON(&request)
 
-	channels, err := op.ChannelList(ctx)
+	channels, err := op.ChannelList(c.Request.Context())
 	if err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	sem := helper.NewProbeSem()
-	results := make(map[string]channelTestResponse, len(channels))
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-	for i := range channels {
-		ch := channels[i]
-		if !ch.Enabled {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Minute)
+	defer cancel()
+
+	summaries := make([]*task.ChannelTestSummary, 0, len(channels))
+	skipped := make([]map[string]any, 0)
+	for _, ch := range channels {
+		if !request.IncludeDisabledChannels && !ch.Enabled {
+			skipped = append(skipped, map[string]any{
+				"channel_id":   ch.ID,
+				"channel_name": ch.Name,
+				"reason":       "channel disabled",
+			})
 			continue
 		}
-		wg.Add(1)
-		go func(channelID int) {
-			defer wg.Done()
-			out, err := runChannelProbe(ctx, channelID, sem)
-			if err != nil {
-				return
-			}
-			mu.Lock()
-			results[strconv.Itoa(channelID)] = out
-			mu.Unlock()
-		}(ch.ID)
+		summary, err := task.ChannelTestRun(ctx, ch.ID, nil, request.IncludeDisabledKeys)
+		if err != nil {
+			skipped = append(skipped, map[string]any{
+				"channel_id":   ch.ID,
+				"channel_name": ch.Name,
+				"reason":       err.Error(),
+			})
+			continue
+		}
+		summaries = append(summaries, summary)
 	}
-	wg.Wait()
-
-	resp.Success(c, gin.H{"results": results})
+	resp.Success(c, map[string]any{
+		"summaries": summaries,
+		"skipped":   skipped,
+	})
 }
 
-func getTestResults(c *gin.Context) {
-	idStr := c.Query("channel_id")
-	if idStr != "" {
-		id, err := strconv.Atoi(idStr)
-		if err != nil {
-			resp.Error(c, http.StatusBadRequest, resp.ErrInvalidParam)
-			return
-		}
-		stored := op.TestResultsByChannel(id)
-		resp.Success(c, channelTestResponse{
-			Summary: summarizeResults(stored),
-			Results: stored,
-		})
+// getChannelTestResults returns the most recently persisted test results for
+// a channel without re-running the probes. The UI uses this to populate the
+// channel detail panel on first open.
+func getChannelTestResults(c *gin.Context) {
+	id := c.Param("id")
+	idNum, err := strconv.Atoi(id)
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidParam)
 		return
 	}
-
-	all := op.TestResultsAll()
-	out := make(map[string]channelTestResponse, len(all))
-	for cid, rows := range all {
-		out[strconv.Itoa(cid)] = channelTestResponse{
-			Summary: summarizeResults(rows),
-			Results: rows,
-		}
+	summary, err := task.ChannelTestResultsList(c.Request.Context(), idNum)
+	if err != nil {
+		resp.Error(c, http.StatusInternalServerError, err.Error())
+		return
 	}
-	resp.Success(c, gin.H{"results": out})
+	resp.Success(c, summary)
 }

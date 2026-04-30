@@ -445,6 +445,12 @@ func ChannelUpdate(req *model.ChannelUpdateRequest, ctx context.Context) (*model
 			tx.Rollback()
 			return nil, fmt.Errorf("failed to delete channel keys: %w", err)
 		}
+		// also drop any cached probe results for those keys so the test
+		// matrix view doesn't show stale rows
+		if err := tx.Where("channel_id = ? AND key_id IN ?", req.ID, req.KeysToDelete).Delete(&model.ChannelTestResult{}).Error; err != nil {
+			tx.Rollback()
+			return nil, fmt.Errorf("failed to delete channel test results: %w", err)
+		}
 	}
 
 	// 更新 keys（逐条，只更新提供的字段）
@@ -453,9 +459,20 @@ func ChannelUpdate(req *model.ChannelUpdateRequest, ctx context.Context) (*model
 			updates := map[string]interface{}{}
 			if ku.Enabled != nil {
 				updates["enabled"] = *ku.Enabled
+				// Manual enable/disable clears the auto-disabled tag — the
+				// user is overriding the prober's verdict.
+				updates["auto_disabled"] = false
+				updates["disabled_reason"] = ""
+				updates["disabled_class"] = ""
+				updates["disabled_at"] = 0
 			}
 			if ku.ChannelKey != nil {
 				updates["channel_key"] = *ku.ChannelKey
+				// Rotating the key invalidates any prior auto-disable verdict.
+				updates["auto_disabled"] = false
+				updates["disabled_reason"] = ""
+				updates["disabled_class"] = ""
+				updates["disabled_at"] = 0
 			}
 			if ku.Remark != nil {
 				updates["remark"] = *ku.Remark
@@ -515,18 +532,25 @@ func ChannelEnabled(id int, enabled bool, ctx context.Context) error {
 		return fmt.Errorf("channel not found")
 	}
 	updates := map[string]interface{}{"enabled": enabled}
-	if enabled {
-		updates["tags"] = []model.ChannelTag(nil)
-		updates["retry_after"] = int64(0)
+	// A manual toggle clears any auto-disabled tag — the user is asserting
+	// that this channel should be in the requested state regardless of past
+	// probe results.
+	if oldChannel.AutoDisabled {
+		updates["auto_disabled"] = false
+		updates["disabled_reason"] = ""
+		updates["disabled_class"] = ""
+		updates["disabled_at"] = 0
 	}
 	if err := db.GetDB().WithContext(ctx).Model(&model.Channel{}).Where("id = ?", id).Updates(updates).Error; err != nil {
 		return err
 	}
 
 	oldChannel.Enabled = enabled
-	if enabled {
-		oldChannel.Tags = nil
-		oldChannel.RetryAfter = 0
+	if oldChannel.AutoDisabled {
+		oldChannel.AutoDisabled = false
+		oldChannel.DisabledReason = ""
+		oldChannel.DisabledClass = ""
+		oldChannel.DisabledAt = 0
 	}
 	channelCache.Set(id, oldChannel)
 	return nil
@@ -565,6 +589,12 @@ func ChannelDel(id int, ctx context.Context) error {
 	if err := tx.Where("channel_id = ?", id).Delete(&model.ChannelKey{}).Error; err != nil {
 		tx.Rollback()
 		return fmt.Errorf("failed to delete channel keys: %w", err)
+	}
+
+	// 删除测试结果
+	if err := tx.Where("channel_id = ?", id).Delete(&model.ChannelTestResult{}).Error; err != nil {
+		tx.Rollback()
+		return fmt.Errorf("failed to delete channel test results: %w", err)
 	}
 
 	// 删除统计数据
@@ -654,6 +684,14 @@ func channelRefreshCache(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// ChannelRefreshCacheByID refreshes the in-memory cache for a single channel
+// after an out-of-band write (e.g. the test/probe orchestrator). Exposed so
+// callers outside this package can opt in without going through the full
+// channelRefreshCache path.
+func ChannelRefreshCacheByID(id int, ctx context.Context) error {
+	return channelRefreshCacheByID(id, ctx)
 }
 
 func channelRefreshCacheByID(id int, ctx context.Context) error {

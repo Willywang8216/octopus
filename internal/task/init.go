@@ -12,21 +12,13 @@ import (
 )
 
 const (
-	TaskPriceUpdate   = "price_update"
-	TaskStatsSave     = "stats_save"
-	TaskRelayLogSave  = "relay_log_save"
-	TaskSyncLLM       = "sync_llm"
-	TaskCleanLLM      = "clean_llm"
-	TaskBaseUrlDelay  = "base_url_delay"
-	TaskBalancerGC    = "balancer_gc"
-	TaskChannelProbe  = "channel_probe"
-)
-
-// 平衡器内存维护：每 5 分钟清理一次过期会话和空闲熔断器条目。
-const (
-	balancerGCInterval     = 5 * time.Minute
-	stickySessionMaxAge    = 24 * time.Hour
-	circuitBreakerIdleTime = 24 * time.Hour
+	TaskPriceUpdate        = "price_update"
+	TaskStatsSave          = "stats_save"
+	TaskRelayLogSave       = "relay_log_save"
+	TaskSyncLLM            = "sync_llm"
+	TaskCleanLLM           = "clean_llm"
+	TaskBaseUrlDelay       = "base_url_delay"
+	TaskChannelHealthCheck = "channel_health_check"
 )
 
 func Init() {
@@ -83,22 +75,12 @@ func Init() {
 		}
 	})
 
-	// 注册平衡器内存维护任务，回收过期的粘性会话和空闲熔断器条目，
-	// 防止 sync.Map 在长时间运行的实例中无限增长。
-	Register(TaskBalancerGC, balancerGCInterval, false, func() {
-		sessions := balancer.GCSticky(stickySessionMaxAge)
-		circuits := balancer.GCCircuit(circuitBreakerIdleTime)
-		if sessions > 0 || circuits > 0 {
-			log.Debugf("balancer GC removed %d sticky sessions, %d circuit entries", sessions, circuits)
-		}
-	})
-
-	// 注册渠道健康探测任务：周期性向非 ALIVE 渠道发送最小请求，
-	// 让 NEW/FLAKY 渠道更快地被分类。
-	probeIntervalMinutes, err := op.SettingGetInt(model.SettingKeyChannelProbeInterval)
-	if err != nil {
-		log.Warnf("failed to get channel probe interval: %v", err)
-		return
+	// 注册渠道健康检查任务（自动重测被禁用的key/通道）
+	healthCheckMinutes, err := op.SettingGetInt(model.SettingKeyHealthCheckInterval)
+	if err == nil && healthCheckMinutes > 0 {
+		healthCheckInterval := time.Duration(healthCheckMinutes) * time.Minute
+		// runOnStart=false: don't probe upstream providers immediately on
+		// boot; let the user trigger the first manual test instead.
+		Register(string(model.SettingKeyHealthCheckInterval), healthCheckInterval, false, ChannelHealthCheckTask)
 	}
-	Register(TaskChannelProbe, time.Duration(probeIntervalMinutes)*time.Minute, false, ChannelProbeTask)
 }

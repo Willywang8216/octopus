@@ -10,10 +10,8 @@ import {
     TrendingUp,
     Globe,
     Key,
-    FlaskConical,
-    Info,
-    ChevronDown,
-    ChevronRight,
+    PlayCircle,
+    Loader2,
 } from 'lucide-react';
 import {
     useUpdateChannel,
@@ -22,10 +20,7 @@ import {
     useChannelTestResults,
     type Channel,
     type UpdateChannelRequest,
-    type ChannelKeyModelStatus,
 } from '@/api/endpoints/channel';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { toast } from '@/components/common/Toast';
 import {
     MorphingDialogTitle,
     MorphingDialogDescription,
@@ -40,14 +35,15 @@ import { ChannelForm, type ChannelFormData } from './Form';
 import { formatMoney } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { TestResults } from './TestResults';
+import { TestResults, AttentionTag } from './TestResults';
+import { toast } from '@/components/common/Toast';
 
 export function CardContent({ channel, stats }: { channel: Channel; stats: StatsMetricsFormatted }) {
     const { setIsOpen } = useMorphingDialog();
     const updateChannel = useUpdateChannel();
     const deleteChannel = useDeleteChannel();
     const testChannel = useTestChannel();
-    const { data: testData } = useChannelTestResults(channel.id);
+    const cachedTestResults = useChannelTestResults(channel.id);
     const [isEditing, setIsEditing] = useState(false);
     const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
     const [expandedKeys, setExpandedKeys] = useState<Set<number>>(new Set());
@@ -100,6 +96,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
         auto_disable_retry_hours: channel.auto_disable_retry_hours != null ? String(channel.auto_disable_retry_hours) : '',
     });
     const t = useTranslations('channel.detail');
+    const tTest = useTranslations('channel.test');
 
     const currentView = isEditing ? 'editing' : 'viewing';
 
@@ -424,164 +421,82 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                     </div>
                                     <div className="rounded-2xl border bg-card overflow-hidden">
                                         {channel.keys?.map((key) => {
-                                            const keyResults = resultsByKey.get(key.id) ?? [];
-                                            const okCount = keyResults.filter((r) => r.ok).length;
-                                            const failCount = keyResults.length - okCount;
-                                            const lastFail = keyResults.find((r) => !r.ok && (r.last_error || r.error_class));
-                                            const isExpanded = expandedKeys.has(key.id);
+                                            const lastTotal = (key.last_test_success ?? 0) + (key.last_test_failed ?? 0);
                                             return (
-                                                <div key={key.id} className="border-b last:border-0">
-                                                    <div className="flex items-center gap-3 p-3 sm:p-4 hover:bg-accent/5 transition-colors">
-                                                        <div className={cn("size-2 shrink-0 rounded-full", key.enabled ? "bg-emerald-500" : "bg-destructive")} />
+                                                <div key={key.id} className="flex items-center gap-3 p-3 sm:p-4 border-b last:border-0 hover:bg-accent/5 transition-colors flex-wrap">
+                                                    <div className={cn(
+                                                        "size-2 shrink-0 rounded-full",
+                                                        key.auto_disabled
+                                                            ? "bg-destructive"
+                                                            : key.enabled
+                                                                ? "bg-emerald-500"
+                                                                : "bg-muted-foreground"
+                                                    )} />
 
-                                                        <span className="font-mono text-sm truncate min-w-0 flex-1">
-                                                            {key.channel_key.length > 10
-                                                                ? `${key.channel_key.slice(0, 4)}...${key.channel_key.slice(-4)}`
-                                                                : key.channel_key}
+                                                    <span className="font-mono text-sm truncate min-w-0 flex-1">
+                                                        {key.channel_key.length > 10
+                                                            ? `${key.channel_key.slice(0, 4)}...${key.channel_key.slice(-4)}`
+                                                            : key.channel_key}
+                                                    </span>
+
+                                                    {key.remark && (
+                                                        <span className="text-xs text-muted-foreground truncate max-w-24" title={key.remark}>
+                                                            {key.remark}
                                                         </span>
 
-                                                        {key.remark && (
-                                                            <span className="text-xs text-muted-foreground truncate max-w-24" title={key.remark}>
-                                                                {key.remark}
+                                                    <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                                                        {key.auto_disabled && (
+                                                            <AttentionTag cls={key.disabled_class} reason={key.disabled_reason} />
+                                                        )}
+                                                        {lastTotal > 0 && (
+                                                            <Badge
+                                                                variant="secondary"
+                                                                className={cn(
+                                                                    "h-5 px-1.5 text-[10px]",
+                                                                    (key.last_test_failed ?? 0) === 0
+                                                                        ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                                                                        : (key.last_test_success ?? 0) === 0
+                                                                            ? "bg-red-500/15 text-red-700 dark:text-red-400"
+                                                                            : "bg-orange-500/15 text-orange-700 dark:text-orange-400"
+                                                                )}
+                                                                title={tTest('keyResultTooltip', {
+                                                                    pass: key.last_test_success ?? 0,
+                                                                    total: lastTotal,
+                                                                })}
+                                                            >
+                                                                {key.last_test_success ?? 0}/{lastTotal}
+                                                            </Badge>
+                                                        )}
+                                                        {key.last_use_time_stamp > 0 && (
+                                                            <span className="text-xs text-muted-foreground whitespace-nowrap hidden sm:inline-block">
+                                                                {new Date(key.last_use_time_stamp * 1000).toLocaleString()}
                                                             </span>
                                                         )}
 
-                                                        <div className="flex items-center gap-2 shrink-0">
-                                                            {key.last_use_time_stamp > 0 && (
-                                                                <span className="text-xs text-muted-foreground whitespace-nowrap hidden sm:inline-block">
-                                                                    {new Date(key.last_use_time_stamp * 1000).toLocaleString()}
-                                                                </span>
-                                                            )}
-
-                                                            {keyResults.length > 0 && (
-                                                                <Badge
-                                                                    variant="secondary"
-                                                                    className={cn(
-                                                                        "h-5 px-1.5 text-[10px] font-medium",
-                                                                        failCount === 0
-                                                                            ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
-                                                                            : okCount === 0
-                                                                                ? "bg-red-500/15 text-red-700 dark:text-red-400"
-                                                                                : "bg-amber-500/15 text-amber-700 dark:text-amber-400"
-                                                                    )}
-                                                                >
-                                                                    {okCount}/{keyResults.length} {t('test.ok')}
-                                                                </Badge>
-                                                            )}
-
-                                                            {key.status_code !== 0 && lastFail ? (
-                                                                <Popover>
-                                                                    <PopoverTrigger asChild>
-                                                                        <button
-                                                                            type="button"
-                                                                            className={cn(
-                                                                                "h-5 px-1.5 inline-flex items-center gap-1 rounded text-[10px] font-medium",
-                                                                                key.status_code === 200
-                                                                                    ? "bg-green-500/15 text-green-700 dark:text-green-400"
-                                                                                    : key.status_code === 401 ||
-                                                                                        key.status_code === 403 ||
-                                                                                        key.status_code === 429 ||
-                                                                                        key.status_code >= 500
-                                                                                        ? "bg-red-500/15 text-red-700 dark:text-red-400"
-                                                                                        : "bg-orange-500/15 text-orange-700 dark:text-orange-400"
-                                                                            )}
-                                                                        >
-                                                                            {key.status_code} <Info className="size-3" />
-                                                                        </button>
-                                                                    </PopoverTrigger>
-                                                                    <PopoverContent
-                                                                        side="top"
-                                                                        align="end"
-                                                                        className="w-72 rounded-2xl border border-border/60 bg-card p-3 shadow-xl text-xs"
-                                                                    >
-                                                                        <div className="grid gap-1.5">
-                                                                            <p className="font-semibold text-card-foreground">{t('test.lastError')}</p>
-                                                                            <p className="font-mono text-[11px] text-destructive break-words whitespace-pre-wrap max-h-40 overflow-y-auto">
-                                                                                {lastFail.last_error || t('test.unknownError')}
-                                                                            </p>
-                                                                            <div className="flex items-center justify-between text-muted-foreground pt-1 border-t">
-                                                                                <span>{t('test.latency')}: {lastFail.latency_ms}ms</span>
-                                                                                <span>{new Date(lastFail.last_tested_at * 1000).toLocaleString()}</span>
-                                                                            </div>
-                                                                        </div>
-                                                                    </PopoverContent>
-                                                                </Popover>
-                                                            ) : key.status_code !== 0 ? (
-                                                                <Badge
-                                                                    variant="secondary"
-                                                                    className={cn(
-                                                                        "h-5 px-1.5 text-[10px]",
-                                                                        key.status_code === 200
-                                                                            ? "bg-green-500/15 text-green-700 dark:text-green-400"
-                                                                            : key.status_code === 401 ||
-                                                                                key.status_code === 403 ||
-                                                                                key.status_code === 429 ||
-                                                                                key.status_code >= 500
-                                                                                ? "bg-red-500/15 text-red-700 dark:text-red-400"
-                                                                                : "bg-orange-500/15 text-orange-700 dark:text-orange-400"
-                                                                    )}
-                                                                >
-                                                                    {key.status_code}
-                                                                </Badge>
-                                                            ) : null}
-
-                                                            <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
-                                                                {formatMoney(key.total_cost).formatted.value}
-                                                                {formatMoney(key.total_cost).formatted.unit}
+                                                        {key.status_code !== 0 && (
+                                                            <Badge
+                                                                variant="secondary"
+                                                                className={cn(
+                                                                    "h-5 px-1.5 text-[10px]",
+                                                                    key.status_code === 200
+                                                                        ? "bg-green-500/15 text-green-700 dark:text-green-400"
+                                                                        : key.status_code === 401 ||
+                                                                            key.status_code === 403 ||
+                                                                            key.status_code === 429 ||
+                                                                            key.status_code >= 500
+                                                                            ? "bg-red-500/15 text-red-700 dark:text-red-400"
+                                                                            : "bg-orange-500/15 text-orange-700 dark:text-orange-400"
+                                                                )}
+                                                            >
+                                                                {key.status_code}
                                                             </Badge>
+                                                        )}
 
-                                                            {keyResults.length > 0 && (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => toggleKeyExpanded(key.id)}
-                                                                    className="text-muted-foreground hover:text-foreground"
-                                                                >
-                                                                    {isExpanded ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
-                                                                </button>
-                                                            )}
-                                                        </div>
+                                                        <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+                                                            {formatMoney(key.total_cost).formatted.value}
+                                                            {formatMoney(key.total_cost).formatted.unit}
+                                                        </Badge>
                                                     </div>
-                                                    {isExpanded && keyResults.length > 0 && (
-                                                        <div className="px-3 sm:px-4 pb-3 sm:pb-4 grid gap-1.5">
-                                                            {keyResults.map((r) => (
-                                                                <div
-                                                                    key={`${r.key_id}-${r.model_name}`}
-                                                                    className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-muted/20 px-2 py-1.5 text-xs"
-                                                                >
-                                                                    <div className="flex items-center gap-2 min-w-0">
-                                                                        {r.ok
-                                                                            ? <CheckCircle2 className="size-3.5 text-emerald-500 shrink-0" />
-                                                                            : <XCircle className="size-3.5 text-destructive shrink-0" />}
-                                                                        <span className="font-mono truncate">{r.model_name}</span>
-                                                                    </div>
-                                                                    <div className="flex items-center gap-2 shrink-0">
-                                                                        <span className="text-muted-foreground">{r.latency_ms}ms</span>
-                                                                        {!r.ok && r.last_error && (
-                                                                            <Popover>
-                                                                                <PopoverTrigger asChild>
-                                                                                    <button
-                                                                                        type="button"
-                                                                                        className="text-destructive hover:underline truncate max-w-[12rem]"
-                                                                                    >
-                                                                                        {r.last_error.length > 28 ? r.last_error.slice(0, 28) + '…' : r.last_error}
-                                                                                    </button>
-                                                                                </PopoverTrigger>
-                                                                                <PopoverContent
-                                                                                    side="top"
-                                                                                    align="end"
-                                                                                    className="w-72 rounded-2xl border border-border/60 bg-card p-3 shadow-xl text-xs"
-                                                                                >
-                                                                                    <p className="font-mono text-[11px] text-destructive break-words whitespace-pre-wrap max-h-40 overflow-y-auto">
-                                                                                        {r.last_error}
-                                                                                    </p>
-                                                                                </PopoverContent>
-                                                                            </Popover>
-                                                                        )}
-                                                                    </div>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    )}
                                                 </div>
                                             );
                                         })}
@@ -591,8 +506,71 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                     </div>
                                 </section>
 
-                                {/* Test results */}
-                                <TestResults channelID={channel.id} />
+                                {/* Channel auto-disabled banner — make it impossible to miss */}
+                                {channel.auto_disabled && (
+                                    <section className="rounded-2xl border border-red-500/30 bg-red-500/5 p-3 flex items-start gap-3">
+                                        <PlayCircle className="size-4 shrink-0 text-red-600 dark:text-red-400 mt-0.5" />
+                                        <div className="flex-1 min-w-0">
+                                            <div className="text-sm font-semibold text-red-700 dark:text-red-300">
+                                                {tTest('channelDisabledTitle')}
+                                            </div>
+                                            <div className="text-xs text-red-700/80 dark:text-red-400/80 mt-0.5">
+                                                {tTest('channelDisabledHint')}
+                                            </div>
+                                        </div>
+                                        <AttentionTag cls={channel.disabled_class} reason={channel.disabled_reason} />
+                                    </section>
+                                )}
+
+                                {/* Probe matrix: per-key, per-model success/fail with reasons */}
+                                <section className="space-y-3">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <h4 className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                                            <Activity className="size-3.5" />
+                                            {tTest('sectionTitle')}
+                                        </h4>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="secondary"
+                                            disabled={testChannel.isPending}
+                                            onClick={() => {
+                                                testChannel.mutate(
+                                                    { id: channel.id, include_disabled_keys: true },
+                                                    {
+                                                        onSuccess: (s) => {
+                                                            toast.success(
+                                                                tTest('toastDone', {
+                                                                    pass: s.success_count,
+                                                                    total: s.total_probes,
+                                                                })
+                                                            );
+                                                        },
+                                                        onError: (err) => toast.error(err.message),
+                                                    }
+                                                );
+                                            }}
+                                            className="h-7 rounded-xl"
+                                        >
+                                            {testChannel.isPending ? (
+                                                <>
+                                                    <Loader2 className="size-3.5 animate-spin" />
+                                                    {tTest('running')}
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <PlayCircle className="size-3.5" />
+                                                    {tTest('runButton')}
+                                                </>
+                                            )}
+                                        </Button>
+                                    </div>
+                                    <TestResults
+                                        channel={channel}
+                                        summary={testChannel.data ?? cachedTestResults.data ?? null}
+                                        isPending={testChannel.isPending || cachedTestResults.isLoading}
+                                    />
+                                </section>
 
                                 {/* 等待时间 */}
                                 <dl className="rounded-2xl border bg-card p-3 sm:p-4 transition-colors hover:bg-accent/5">
