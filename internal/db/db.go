@@ -55,6 +55,7 @@ func InitDB(dbType, dsn string, debug bool) error {
 		&model.User{},
 		&model.Channel{},
 		&model.ChannelKey{},
+		&model.ChannelTestResult{},
 		&model.Group{},
 		&model.GroupItem{},
 		&model.LLMInfo{},

@@ -53,6 +53,7 @@
         "setting": "Setting"
     },
     "toolbar": {
+        "testAllAriaLabel": "Test all channels",
         "popover": {
             "ariaLabel": "View options",
             "layout": "Layout",
@@ -452,9 +453,42 @@
         "card": {
             "requestCount": "Requests",
             "totalCost": "Total Cost",
+            "enabledShort": "enabled",
+            "autoDisabledShort": "auto-disabled",
             "toast": {
                 "enabled": "Channel enabled",
                 "disabled": "Channel disabled"
+            }
+        },
+        "test": {
+            "sectionTitle": "Test Results",
+            "runButton": "Test models",
+            "running": "Testing...",
+            "passing": "passing",
+            "keys": "keys",
+            "models": "models",
+            "lastTested": "Last tested",
+            "emptyHint": "Click \"Test models\" to probe every (key × model) combination. Failures are shown with the upstream provider's reason.",
+            "noModelsTested": "No models tested for this key yet",
+            "noKeysTested": "No keys tested yet",
+            "channelDisabledTitle": "Channel auto-disabled — attention needed",
+            "channelDisabledHint": "Every key on this channel failed the last probe. The next scheduled health check will retry automatically. Toggle the channel switch to override.",
+            "toastDone": "Test done — {pass}/{total} models passing",
+            "toastDoneAll": "Tested {channels} channels — {pass}/{total} models passing",
+            "keyResultTooltip": "{pass}/{total} models passing on this key",
+            "errorClass": {
+                "auth_invalid": "Invalid API key",
+                "permission_denied": "Permission denied",
+                "insufficient_quota": "Insufficient quota / billing",
+                "rate_limited": "Rate limited",
+                "model_not_found": "Model not found",
+                "bad_request": "Bad request",
+                "server_error": "Provider 5xx",
+                "network_error": "Network error",
+                "timeout": "Timeout",
+                "transform_error": "Local error",
+                "unsupported_channel": "Unsupported channel type",
+                "other": "Failed"
             }
         },
         "detail": {

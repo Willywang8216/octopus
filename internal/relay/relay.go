@@ -190,7 +190,23 @@ func (ra *relayAttempt) attempt() attemptResult {
 	}
 
 	// ====== 失败 ======
-	op.ChannelKeyUpdate(ra.usedKey)
+	errorClass, disabledReason := helper.ClassifyChannelFailure(statusCode, fwdErr)
+	if errorClass.IsAttentionNeeded() {
+		disabledReason = helper.HumanChannelFailureReason(errorClass, disabledReason)
+		ra.usedKey.Enabled = false
+		ra.usedKey.AutoDisabled = true
+		ra.usedKey.DisabledClass = errorClass
+		ra.usedKey.DisabledReason = disabledReason
+		if ra.usedKey.DisabledAt == 0 {
+			ra.usedKey.DisabledAt = time.Now().Unix()
+		}
+		if err := op.ChannelRuntimeAutoDisableKey(ra.channel.ID, ra.usedKey, errorClass, disabledReason, ra.c.Request.Context()); err != nil {
+			log.Warnf("failed to auto-disable key %d on channel %s: %v", ra.usedKey.ID, ra.channel.Name, err)
+			op.ChannelKeyUpdate(ra.usedKey)
+		}
+	} else {
+		op.ChannelKeyUpdate(ra.usedKey)
+	}
 	span.End(dbmodel.AttemptFailed, statusCode, fwdErr.Error())
 
 	// Channel 维度统计
@@ -269,9 +285,9 @@ func (ra *relayAttempt) forward() (int, error) {
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		body, err := io.ReadAll(response.Body)
 		if err != nil {
-			return 0, fmt.Errorf("failed to read response body: %w", err)
+			return response.StatusCode, fmt.Errorf("failed to read response body: %w", err)
 		}
-		return 0, fmt.Errorf("upstream error: %d: %s", response.StatusCode, string(body))
+		return response.StatusCode, fmt.Errorf("upstream error: %d: %s", response.StatusCode, string(body))
 	}
 
 	// 处理响应

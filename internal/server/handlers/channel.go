@@ -44,6 +44,14 @@ func init() {
 		AddRoute(
 			router.NewRoute("/fetch-model", http.MethodPost).
 				Handle(fetchModel),
+		).
+		AddRoute(
+			router.NewRoute("/test", http.MethodPost).
+				Handle(testChannel),
+		).
+		AddRoute(
+			router.NewRoute("/test-all", http.MethodPost).
+				Handle(testAllChannels),
 		)
 	router.NewGroupRouter("/api/v1/channel").
 		Use(middleware.Auth()).
@@ -54,6 +62,10 @@ func init() {
 		AddRoute(
 			router.NewRoute("/last-sync-time", http.MethodGet).
 				Handle(getLastSyncTime),
+		).
+		AddRoute(
+			router.NewRoute("/test-results/:id", http.MethodGet).
+				Handle(getChannelTestResults),
 		)
 }
 
@@ -170,4 +182,106 @@ func syncChannel(c *gin.Context) {
 func getLastSyncTime(c *gin.Context) {
 	time := task.GetLastSyncModelsTime()
 	resp.Success(c, time)
+}
+
+// testChannel runs the probe matrix for a single channel and returns a
+// structured per-key/per-model summary so the UI can render the results.
+func testChannel(c *gin.Context) {
+	var request struct {
+		ID     int      `json:"id"`
+		Models []string `json:"models,omitempty"`
+		// IncludeDisabledKeys allows the UI to (re)test keys the user has
+		// manually disabled or that the auto-disable logic has switched off.
+		IncludeDisabledKeys bool `json:"include_disabled_keys,omitempty"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
+		return
+	}
+	if request.ID <= 0 {
+		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidParam)
+		return
+	}
+	// Tests run against upstream LLM providers and can take a while when
+	// there are many keys × models, so give them a generous deadline
+	// independent of the inbound request timeout.
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Minute)
+	defer cancel()
+	summary, err := task.ChannelTestRun(ctx, request.ID, request.Models, request.IncludeDisabledKeys)
+	if err != nil {
+		resp.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	resp.Success(c, summary)
+}
+
+// testAllChannels fans out the probe matrix across every channel and returns
+// per-channel summaries. Channels are tested sequentially to bound load on
+// the server, but each channel internally runs its key×model matrix
+// concurrently.
+func testAllChannels(c *gin.Context) {
+	var request struct {
+		IncludeDisabledKeys bool `json:"include_disabled_keys,omitempty"`
+		// IncludeDisabledChannels allows the user to also probe channels
+		// that have been disabled (manually or automatically). Without this
+		// only enabled channels are scanned.
+		IncludeDisabledChannels bool `json:"include_disabled_channels,omitempty"`
+	}
+	// JSON body is optional for this endpoint; ignore parse errors so an
+	// empty body still works.
+	_ = c.ShouldBindJSON(&request)
+
+	channels, err := op.ChannelList(c.Request.Context())
+	if err != nil {
+		resp.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Minute)
+	defer cancel()
+
+	summaries := make([]*task.ChannelTestSummary, 0, len(channels))
+	skipped := make([]map[string]any, 0)
+	for _, ch := range channels {
+		if !request.IncludeDisabledChannels && !ch.Enabled {
+			skipped = append(skipped, map[string]any{
+				"channel_id":   ch.ID,
+				"channel_name": ch.Name,
+				"reason":       "channel disabled",
+			})
+			continue
+		}
+		summary, err := task.ChannelTestRun(ctx, ch.ID, nil, request.IncludeDisabledKeys)
+		if err != nil {
+			skipped = append(skipped, map[string]any{
+				"channel_id":   ch.ID,
+				"channel_name": ch.Name,
+				"reason":       err.Error(),
+			})
+			continue
+		}
+		summaries = append(summaries, summary)
+	}
+	resp.Success(c, map[string]any{
+		"summaries": summaries,
+		"skipped":   skipped,
+	})
+}
+
+// getChannelTestResults returns the most recently persisted test results for
+// a channel without re-running the probes. The UI uses this to populate the
+// channel detail panel on first open.
+func getChannelTestResults(c *gin.Context) {
+	id := c.Param("id")
+	idNum, err := strconv.Atoi(id)
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidParam)
+		return
+	}
+	summary, err := task.ChannelTestResultsList(c.Request.Context(), idNum)
+	if err != nil {
+		resp.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	resp.Success(c, summary)
 }
