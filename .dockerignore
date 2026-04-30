@@ -1,0 +1,9 @@
+.git
+.github
+build
+data
+.vscode
+web/node_modules
+web/.next
+web/out
+static/out
