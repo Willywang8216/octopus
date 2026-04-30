@@ -1,0 +1,19 @@
+# Local-build compose file. Use this when you have changes you want to
+# run inside Docker:
+#
+#   docker compose -f docker-compose.dev.yml up -d --build --force-recreate
+#
+# It builds the binary from the working tree (frontend + Go) instead of
+# pulling the published image, which is what docker-compose.yml does.
+services:
+  octopus:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: octopus:local
+    container_name: octopus
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
