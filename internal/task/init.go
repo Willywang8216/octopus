@@ -11,12 +11,13 @@ import (
 )
 
 const (
-	TaskPriceUpdate  = "price_update"
-	TaskStatsSave    = "stats_save"
-	TaskRelayLogSave = "relay_log_save"
-	TaskSyncLLM      = "sync_llm"
-	TaskCleanLLM     = "clean_llm"
-	TaskBaseUrlDelay = "base_url_delay"
+	TaskPriceUpdate        = "price_update"
+	TaskStatsSave          = "stats_save"
+	TaskRelayLogSave       = "relay_log_save"
+	TaskSyncLLM            = "sync_llm"
+	TaskCleanLLM           = "clean_llm"
+	TaskBaseUrlDelay       = "base_url_delay"
+	TaskChannelHealthCheck = "channel_health_check"
 )
 
 func Init() {
@@ -59,4 +60,13 @@ func Init() {
 			log.Warnf("relay log save db task failed: %v", err)
 		}
 	})
+
+	// 注册渠道健康检查任务（自动重测被禁用的key/通道）
+	healthCheckMinutes, err := op.SettingGetInt(model.SettingKeyHealthCheckInterval)
+	if err == nil && healthCheckMinutes > 0 {
+		healthCheckInterval := time.Duration(healthCheckMinutes) * time.Minute
+		// runOnStart=false: don't probe upstream providers immediately on
+		// boot; let the user trigger the first manual test instead.
+		Register(string(model.SettingKeyHealthCheckInterval), healthCheckInterval, false, ChannelHealthCheckTask)
+	}
 }

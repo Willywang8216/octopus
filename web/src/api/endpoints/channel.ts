@@ -35,6 +35,24 @@ export type CustomHeader = {
     header_value: string;
 };
 
+/**
+ * 渠道测试错误分类（与后端 model.ChannelTestErrorClass 对齐）
+ */
+export type ChannelTestErrorClass =
+    | ''
+    | 'auth_invalid'
+    | 'permission_denied'
+    | 'insufficient_quota'
+    | 'rate_limited'
+    | 'model_not_found'
+    | 'bad_request'
+    | 'server_error'
+    | 'network_error'
+    | 'timeout'
+    | 'transform_error'
+    | 'unsupported_channel'
+    | 'other';
+
 export type ChannelKey = {
     id: number;
     channel_id: number;
@@ -44,6 +62,13 @@ export type ChannelKey = {
     last_use_time_stamp: number;
     total_cost: number;
     remark: string;
+    auto_disabled?: boolean;
+    disabled_reason?: string;
+    disabled_class?: ChannelTestErrorClass;
+    disabled_at?: number;
+    last_test_at?: number;
+    last_test_success?: number;
+    last_test_failed?: number;
 };
 
 /**
@@ -66,6 +91,69 @@ export type Channel = {
     channel_proxy?: string | null;
     match_regex?: string | null;
     stats: StatsChannel;
+    auto_disabled?: boolean;
+    disabled_reason?: string;
+    disabled_class?: ChannelTestErrorClass;
+    disabled_at?: number;
+    last_test_at?: number;
+};
+
+/**
+ * 单条 (channel, key, model) 探测结果
+ */
+export type ChannelTestModelResult = {
+    id: number;
+    channel_id: number;
+    key_id: number;
+    model: string;
+    success: boolean;
+    status_code: number;
+    latency_ms: number;
+    error_class: ChannelTestErrorClass;
+    error_msg: string;
+    tested_at: number;
+};
+
+/**
+ * 单个 key 在测试运行中的汇总
+ */
+export type ChannelTestKeySummary = {
+    key_id: number;
+    key_preview: string;
+    remark: string;
+    enabled: boolean;
+    auto_disabled: boolean;
+    disabled_reason: string;
+    disabled_class: ChannelTestErrorClass;
+    success_count: number;
+    fail_count: number;
+    models: ChannelTestModelResult[] | null;
+};
+
+export type ChannelDisabledTagDetail = {
+    auto_disabled: boolean;
+    disabled_reason: string;
+    disabled_class: ChannelTestErrorClass;
+    disabled_at: number;
+};
+
+export type ChannelTestSummary = {
+    channel_id: number;
+    channel_name: string;
+    total_keys: number;
+    total_models: number;
+    total_probes: number;
+    success_count: number;
+    fail_count: number;
+    duration_ms: number;
+    keys: ChannelTestKeySummary[] | null;
+    tested_at: number;
+    disabled?: ChannelDisabledTagDetail | null;
+};
+
+export type ChannelTestAllResponse = {
+    summaries: ChannelTestSummary[] | null;
+    skipped: Array<{ channel_id: number; channel_name: string; reason: string }> | null;
 };
 
 // Internal type: backend may return null for slice fields; normalize to [] in select()
@@ -361,5 +449,64 @@ export function useSyncChannel() {
         onError: (error) => {
             logger.error('渠道同步失败:', error);
         },
+    });
+}
+
+/**
+ * 测试单个渠道的所有 (key × model) 组合 Hook
+ *
+ * @example
+ * const testChannel = useTestChannel();
+ * testChannel.mutate({ id: 1 }, { onSuccess: (summary) => console.log(summary) });
+ */
+export function useTestChannel() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (data: { id: number; models?: string[]; include_disabled_keys?: boolean }) => {
+            return apiClient.post<ChannelTestSummary>('/api/v1/channel/test', data);
+        },
+        onSuccess: (data) => {
+            logger.log('渠道测试完成:', data);
+            queryClient.invalidateQueries({ queryKey: ['channels', 'list'] });
+            queryClient.invalidateQueries({ queryKey: ['channels', 'test-results', data.channel_id] });
+        },
+        onError: (error) => {
+            logger.error('渠道测试失败:', error);
+        },
+    });
+}
+
+/**
+ * 一键测试所有渠道的所有 (key × model) 组合 Hook
+ */
+export function useTestAllChannels() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (data?: { include_disabled_keys?: boolean; include_disabled_channels?: boolean }) => {
+            return apiClient.post<ChannelTestAllResponse>('/api/v1/channel/test-all', data ?? {});
+        },
+        onSuccess: () => {
+            logger.log('全量渠道测试完成');
+            queryClient.invalidateQueries({ queryKey: ['channels', 'list'] });
+            queryClient.invalidateQueries({ queryKey: ['channels', 'test-results'] });
+        },
+        onError: (error) => {
+            logger.error('全量渠道测试失败:', error);
+        },
+    });
+}
+
+/**
+ * 获取渠道已缓存的测试结果（不触发新探测）Hook
+ */
+export function useChannelTestResults(channelId: number | undefined, enabled = true) {
+    return useQuery({
+        queryKey: ['channels', 'test-results', channelId],
+        queryFn: async () => {
+            if (!channelId) return null;
+            return apiClient.get<ChannelTestSummary>(`/api/v1/channel/test-results/${channelId}`);
+        },
+        enabled: enabled && typeof channelId === 'number' && channelId > 0,
+        staleTime: 10000,
     });
 }

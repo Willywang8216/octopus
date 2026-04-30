@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowUpAZ, Clock3, LayoutGrid, List, Plus, Search, SlidersHorizontal, X } from 'lucide-react';
+import { ArrowUpAZ, Clock3, LayoutGrid, List, Loader2, Plus, Search, SlidersHorizontal, Stethoscope, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
     MorphingDialog,
@@ -16,6 +16,8 @@ import { useNavStore, type NavItem } from '@/components/modules/navbar';
 import { CreateDialogContent as ChannelCreateContent } from '@/components/modules/channel/Create';
 import { CreateDialogContent as GroupCreateContent } from '@/components/modules/group/Create';
 import { CreateDialogContent as ModelCreateContent } from '@/components/modules/model/Create';
+import { useTestAllChannels } from '@/api/endpoints/channel';
+import { toast } from '@/components/common/Toast';
 import { useTranslations } from 'next-intl';
 import { useSearchStore } from './search-store';
 import {
@@ -322,6 +324,8 @@ export function Toolbar() {
                 </Popover>
 
                 {/* 创建按钮 */}
+                {toolbarItem === 'channel' && <TestAllChannelsButton />}
+
                 <MorphingDialog>
                     <MorphingDialogTrigger className={buttonVariants({ variant: "ghost", size: "icon", className: "rounded-xl transition-none hover:bg-transparent text-muted-foreground hover:text-foreground" })}>
                         <Plus className="size-4 transition-colors duration-300" />
@@ -335,6 +339,57 @@ export function Toolbar() {
                 </MorphingDialog>
             </motion.div>
         </AnimatePresence>
+    );
+}
+
+/**
+ * TestAllChannelsButton triggers a global probe across every enabled
+ * channel. Lives in the toolbar so it's always one click away on the
+ * channel page.
+ */
+function TestAllChannelsButton() {
+    const t = useTranslations('toolbar');
+    const tTest = useTranslations('channel.test');
+    const testAll = useTestAllChannels();
+    const isPending = testAll.isPending;
+    return (
+        <button
+            type="button"
+            aria-label={t('testAllAriaLabel')}
+            disabled={isPending}
+            onClick={() => {
+                testAll.mutate(
+                    { include_disabled_keys: true },
+                    {
+                        onSuccess: (resp) => {
+                            const summaries = resp.summaries ?? [];
+                            const totalPass = summaries.reduce((s, x) => s + x.success_count, 0);
+                            const totalProbes = summaries.reduce((s, x) => s + x.total_probes, 0);
+                            toast.success(
+                                tTest('toastDoneAll', {
+                                    channels: summaries.length,
+                                    pass: totalPass,
+                                    total: totalProbes,
+                                })
+                            );
+                        },
+                        onError: (err) => toast.error(err.message),
+                    }
+                );
+            }}
+            className={buttonVariants({
+                variant: 'ghost',
+                size: 'icon',
+                className: 'rounded-xl transition-none hover:bg-transparent text-muted-foreground hover:text-foreground disabled:opacity-50',
+            })}
+            title={t('testAllAriaLabel')}
+        >
+            {isPending ? (
+                <Loader2 className="size-4 animate-spin" />
+            ) : (
+                <Stethoscope className="size-4 transition-colors duration-300" />
+            )}
+        </button>
     );
 }
 
