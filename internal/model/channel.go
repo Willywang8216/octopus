@@ -131,24 +131,24 @@ type ChannelTestResult struct {
 
 // ChannelUpdateRequest 渠道更新请求 - 仅包含变更的数据
 type ChannelUpdateRequest struct {
-	ID            int                    `json:"id" binding:"required"`
-	Name          *string                `json:"name,omitempty"`
-	Type          *outbound.OutboundType `json:"type,omitempty"`
-	Enabled       *bool                  `json:"enabled,omitempty"`
-	Tags          *[]ChannelTag          `json:"tags,omitempty"`
-	RetryAfter    *int64                 `json:"retry_after,omitempty"`
-	BaseUrls      *[]BaseUrl             `json:"base_urls,omitempty"`
-	Model         *string                `json:"model,omitempty"`
-	CustomModel   *string                `json:"custom_model,omitempty"`
-	Proxy         *bool                  `json:"proxy,omitempty"`
-	AutoSync      *bool                  `json:"auto_sync,omitempty"`
-	AutoGroup     *AutoGroupType         `json:"auto_group,omitempty"`
-	CustomHeader  *[]CustomHeader        `json:"custom_header,omitempty"`
-	ChannelProxy           *string                `json:"channel_proxy,omitempty"`
-	ParamOverride          *string                `json:"param_override,omitempty"`
-	MatchRegex             *string                `json:"match_regex,omitempty"`
-	AutoDisableThreshold   *int                   `json:"auto_disable_threshold,omitempty"`
-	AutoDisableRetryHours  *int                   `json:"auto_disable_retry_hours,omitempty"`
+	ID                    int                    `json:"id" binding:"required"`
+	Name                  *string                `json:"name,omitempty"`
+	Type                  *outbound.OutboundType `json:"type,omitempty"`
+	Enabled               *bool                  `json:"enabled,omitempty"`
+	Tags                  *[]ChannelTag          `json:"tags,omitempty"`
+	RetryAfter            *int64                 `json:"retry_after,omitempty"`
+	BaseUrls              *[]BaseUrl             `json:"base_urls,omitempty"`
+	Model                 *string                `json:"model,omitempty"`
+	CustomModel           *string                `json:"custom_model,omitempty"`
+	Proxy                 *bool                  `json:"proxy,omitempty"`
+	AutoSync              *bool                  `json:"auto_sync,omitempty"`
+	AutoGroup             *AutoGroupType         `json:"auto_group,omitempty"`
+	CustomHeader          *[]CustomHeader        `json:"custom_header,omitempty"`
+	ChannelProxy          *string                `json:"channel_proxy,omitempty"`
+	ParamOverride         *string                `json:"param_override,omitempty"`
+	MatchRegex            *string                `json:"match_regex,omitempty"`
+	AutoDisableThreshold  *int                   `json:"auto_disable_threshold,omitempty"`
+	AutoDisableRetryHours *int                   `json:"auto_disable_retry_hours,omitempty"`
 
 	KeysToAdd    []ChannelKeyAddRequest    `json:"keys_to_add,omitempty"`
 	KeysToUpdate []ChannelKeyUpdateRequest `json:"keys_to_update,omitempty"`
@@ -203,70 +203,50 @@ func (c *Channel) GetChannelKey() ChannelKey {
 	return c.getChannelKey(0)
 }
 
-// GetChannelKeyByID 优先返回指定 ID 的 key（用于会话保持），仅当该 key
-// 仍可用（启用、非空、未在 429 冷却）时生效；否则回退到默认选择。
+// GetChannelKeyByID prefers the specified key when it is still available,
+// otherwise it falls back to the cheapest healthy key.
 func (c *Channel) GetChannelKeyByID(preferredID int) ChannelKey {
 	return c.getChannelKey(preferredID)
 }
 
 func (c *Channel) getChannelKey(preferredID int) ChannelKey {
+	keys := c.GetAvailableKeys()
+	if len(keys) == 0 {
+		return ChannelKey{}
+	}
+	if preferredID > 0 {
+		for _, k := range keys {
+			if k.ID == preferredID {
+				return k
+			}
+		}
+	}
+	return keys[0]
+}
+
+func (c *Channel) GetAvailableKeys() []ChannelKey {
 	if c == nil || len(c.Keys) == 0 {
 		return nil
 	}
 
 	nowSec := time.Now().Unix()
-	keyHealthy := func(k ChannelKey) bool {
+	keys := make([]ChannelKey, 0, len(c.Keys))
+	for _, k := range c.Keys {
 		if !k.Enabled || k.ChannelKey == "" {
-			return false
+			continue
 		}
 		if k.StatusCode == 429 && k.LastUseTimeStamp > 0 {
 			if nowSec-k.LastUseTimeStamp < int64(5*time.Minute/time.Second) {
-				return false
+				continue
 			}
 		}
-		return true
+		keys = append(keys, k)
 	}
 
-	if preferredID > 0 {
-		for _, k := range c.Keys {
-			if k.ID == preferredID && keyHealthy(k) {
-				return k
-			}
+	for i := 1; i < len(keys); i++ {
+		for j := i; j > 0 && keys[j].TotalCost < keys[j-1].TotalCost; j-- {
+			keys[j], keys[j-1] = keys[j-1], keys[j]
 		}
 	}
-
-	best := ChannelKey{}
-	bestCost := 0.0
-	bestSet := false
-	for _, k := range c.Keys {
-		if !keyHealthy(k) {
-			continue
-		}
-		if !bestSet || k.TotalCost < bestCost {
-			best = k
-			bestCost = k.TotalCost
-			bestSet = true
-		}
-	}
-
-	// Prefer cheaper keys first.
-	slices.SortFunc(keys, func(a, b ChannelKey) int {
-		switch {
-		case a.TotalCost < b.TotalCost:
-			return -1
-		case a.TotalCost > b.TotalCost:
-			return 1
-		default:
-			return 0
-		}
-	})
 	return keys
-}
-
-func (c *Channel) GetChannelKey() ChannelKey {
-	keys := c.GetAvailableKeys()
-	if len(keys) == 0 {
-		return ChannelKey{}
-	}
-	return keys[0]
 }
