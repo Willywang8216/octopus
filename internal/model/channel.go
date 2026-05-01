@@ -1,7 +1,6 @@
 package model
 
 import (
-	"strings"
 	"time"
 
 	"github.com/bestruirui/octopus/internal/transformer/outbound"
