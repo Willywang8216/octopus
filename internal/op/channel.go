@@ -823,7 +823,7 @@ func ChannelFindDuplicates(baseUrls []model.BaseUrl, keys []string, excludeID in
 	// Build a set of normalized URLs being added.
 	newURLs := make(map[string]struct{}, len(baseUrls))
 	for _, bu := range baseUrls {
-		norm := model.NormalizeBaseURL(bu.URL)
+		norm := normalizeBaseURL(bu.URL)
 		if norm != "" {
 			newURLs[norm] = struct{}{}
 		}
@@ -851,7 +851,7 @@ func ChannelFindDuplicates(baseUrls []model.BaseUrl, keys []string, excludeID in
 
 		urlMatch := false
 		for _, existURL := range ch.BaseUrls {
-			norm := model.NormalizeBaseURL(existURL.URL)
+			norm := normalizeBaseURL(existURL.URL)
 			if _, ok := newURLs[norm]; ok {
 				urlMatch = true
 				break
