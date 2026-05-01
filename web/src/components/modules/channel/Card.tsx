@@ -4,7 +4,7 @@ import {
     MorphingDialogContainer,
     MorphingDialogContent,
 } from '@/components/ui/morphing-dialog';
-import { AlertTriangle, CheckCircle2, DollarSign, Key, Layers, MessageSquare, XCircle } from 'lucide-react';
+import { CheckCircle2, DollarSign, Key, Layers, MessageSquare, XCircle } from 'lucide-react';
 import { type StatsMetricsFormatted } from '@/api/endpoints/stats';
 import { type Channel, useEnableChannel } from '@/api/endpoints/channel';
 import { CardContent } from './CardContent';
@@ -14,7 +14,6 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/animate-ui
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/components/common/Toast';
-import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { AttentionTag } from './TestResults';
 
@@ -23,38 +22,8 @@ export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; st
     const tForm = useTranslations('channel.form');
     const tSections = useTranslations('channel.detail.sections');
     const tMetrics = useTranslations('channel.detail.metrics');
-    const tTag = useTranslations('channel.statusTag');
     const enableChannel = useEnableChannel();
     const isListLayout = layout === 'list';
-
-    const statusTagBadge = (() => {
-        if (!channel.status_tag) return null;
-        switch (channel.status_tag) {
-            case 'auto_disabled':
-                return (
-                    <Badge variant="destructive" className="h-5 px-1.5 text-[10px] gap-1">
-                        <Ban className="size-3" />
-                        {tTag('autoDisabled')}
-                    </Badge>
-                );
-            case 'insufficient_funds':
-                return (
-                    <Badge className="h-5 px-1.5 text-[10px] gap-1 bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-500/30">
-                        <AlertTriangle className="size-3" />
-                        {tTag('insufficientFunds')}
-                    </Badge>
-                );
-            case 'quota_exceeded':
-                return (
-                    <Badge className="h-5 px-1.5 text-[10px] gap-1 bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-500/30">
-                        <AlertTriangle className="size-3" />
-                        {tTag('quotaExceeded')}
-                    </Badge>
-                );
-            default:
-                return null;
-        }
-    })();
 
     const splitModels = (models: string) =>
         models

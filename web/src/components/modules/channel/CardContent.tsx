@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import {
     Trash2,
     CheckCircle2,
@@ -46,24 +46,6 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
     const cachedTestResults = useChannelTestResults(channel.id);
     const [isEditing, setIsEditing] = useState(false);
     const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
-    const [expandedKeys, setExpandedKeys] = useState<Set<number>>(new Set());
-    const toggleKeyExpanded = (id: number) => {
-        setExpandedKeys((prev) => {
-            const next = new Set(prev);
-            if (next.has(id)) next.delete(id);
-            else next.add(id);
-            return next;
-        });
-    };
-    const resultsByKey = useMemo(() => {
-        const map = new Map<number, ChannelKeyModelStatus[]>();
-        for (const r of testData?.results ?? []) {
-            const arr = map.get(r.key_id) ?? [];
-            arr.push(r);
-            map.set(r.key_id, arr);
-        }
-        return map;
-    }, [testData]);
     const [formData, setFormData] = useState<ChannelFormData>({
         name: channel.name,
         type: channel.type,
@@ -408,14 +390,24 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                             size="sm"
                                             disabled={testChannel.isPending}
                                             onClick={() => {
-                                                testChannel.mutate(channel.id, {
-                                                    onSuccess: () => toast.success(t('test.toastSuccess')),
-                                                    onError: (e) => toast.error(t('test.toastFailed'), { description: e.message }),
-                                                });
+                                                testChannel.mutate(
+                                                    { id: channel.id, include_disabled_keys: true },
+                                                    {
+                                                        onSuccess: (summary) => {
+                                                            toast.success(
+                                                                tTest('toastDone', {
+                                                                    pass: summary.success_count,
+                                                                    total: summary.total_probes,
+                                                                })
+                                                            );
+                                                        },
+                                                        onError: (e) => toast.error(e.message),
+                                                    }
+                                                );
                                             }}
                                             className="h-7 rounded-lg gap-1 text-xs"
                                         >
-                                            <FlaskConical className={cn('size-3.5', testChannel.isPending && 'animate-pulse')} />
+                                            <PlayCircle className={cn('size-3.5', testChannel.isPending && 'animate-pulse')} />
                                             {testChannel.isPending ? t('test.testing') : t('test.testAll')}
                                         </Button>
                                     </div>
@@ -443,6 +435,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                                         <span className="text-xs text-muted-foreground truncate max-w-24" title={key.remark}>
                                                             {key.remark}
                                                         </span>
+                                                    )}
 
                                                     <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
                                                         {key.auto_disabled && (
@@ -585,72 +578,14 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                 </dl>
                             </div>
 
-                            {/* Model Test Results */}
-                            {modelTestResults && modelTestResults.length > 0 && (
-                                <section className="space-y-3">
-                                    <h4 className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                                        <Activity className="size-3.5" />
-                                        {t('sections.modelTestResults')}
-                                    </h4>
-                                    <div className="rounded-2xl border bg-card overflow-hidden">
-                                        {modelTestResults.map((r) => (
-                                            <div key={r.model} className="flex items-center justify-between p-3 border-b last:border-0">
-                                                <span className="font-mono text-sm truncate min-w-0 flex-1">{r.model}</span>
-                                                <div className="flex items-center gap-2 shrink-0">
-                                                    {r.available ? (
-                                                        <Badge className="h-5 px-1.5 text-[10px] gap-1 bg-green-500/15 text-green-700 dark:text-green-400 border-green-500/30">
-                                                            <CheckCircle2 className="size-2.5" />
-                                                            OK
-                                                        </Badge>
-                                                    ) : (
-                                                        <Badge variant="destructive" className="h-5 px-1.5 text-[10px] gap-1">
-                                                            <XCircle className="size-2.5" />
-                                                            Failed
-                                                        </Badge>
-                                                    )}
-                                                </div>
-                                                {r.error && (
-                                                    <span className="text-[10px] text-destructive ml-2 truncate max-w-40" title={r.error}>
-                                                        {r.error}
-                                                    </span>
-                                                )}
-                                            </div>
-                                        ))}
-                                    </div>
-                                </section>
-                            )}
-
                             {/* 操作按钮 */}
-                            <div className="grid gap-3 grid-cols-2 sm:grid-cols-4 pt-2">
+                            <div className="grid gap-3 sm:grid-cols-2 pt-2">
                                 <Button
                                     onClick={() => (isConfirmingDelete ? setIsConfirmingDelete(false) : setIsEditing(true))}
                                     variant={isConfirmingDelete ? 'secondary' : 'default'}
                                     className="w-full rounded-2xl h-12"
                                 >
                                     {isConfirmingDelete ? t('actions.cancel') : t('actions.edit')}
-                                </Button>
-                                <Button
-                                    onClick={() => checkModels.mutate(channel.id)}
-                                    disabled={checkModels.isPending}
-                                    variant="outline"
-                                    className="w-full rounded-2xl h-12"
-                                >
-                                    <RefreshCw className={`size-4 ${checkModels.isPending ? 'animate-spin' : ''}`} />
-                                    {checkModels.isPending ? t('actions.checkingModels') : t('actions.checkModels')}
-                                </Button>
-                                <Button
-                                    onClick={() => {
-                                        setModelTestResults(null);
-                                        testAllModels.mutate(channel.id, {
-                                            onSuccess: (data) => setModelTestResults(data),
-                                        });
-                                    }}
-                                    disabled={testAllModels.isPending}
-                                    variant="outline"
-                                    className="w-full rounded-2xl h-12"
-                                >
-                                    <Activity className={`size-4 ${testAllModels.isPending ? 'animate-pulse' : ''}`} />
-                                    {testAllModels.isPending ? t('actions.testingAllModels') : t('actions.testAllModels')}
                                 </Button>
                                 <Button
                                     onClick={handleDeleteClick}

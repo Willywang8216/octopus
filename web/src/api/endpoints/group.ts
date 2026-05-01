@@ -201,30 +201,40 @@ export function useCreateCoderPresetGroups() {
 
 /**
  * 自动添加分组 item Hook
- *
- * 后端路由: POST /api/v1/group/auto-add-item
- * Body: { id: number }
- *
- * @example
- * const autoAdd = useAutoAddGroupItem();
- * autoAdd.mutate(1); // 为 groupId=1 自动添加匹配的 items
  */
+export function useAutoAddGroupItem() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (groupId: number) => {
+            return apiClient.post<null>('/api/v1/group/auto-add-item', { id: groupId });
+        },
+        onSuccess: () => {
+            logger.log('自动添加分组 item 成功');
+            queryClient.invalidateQueries({ queryKey: ['groups', 'list'] });
+        },
+        onError: (error) => {
+            logger.error('自动添加分组 item 失败:', error);
+        },
+    });
+}
+
 /**
- * Create pre-configured agentic coding groups (Claude Code + Codex)
+ * Create pre-configured agentic coding groups (Claude Code + Codex).
  */
 export function useCreateAgenticGroups() {
     const queryClient = useQueryClient();
 
-//     return useMutation({
-//         mutationFn: async (groupId: number) => {
-//             return apiClient.post<null>(`/api/v1/group/auto-add-item`, { id: groupId });
-//         },
-//         onSuccess: () => {
-//             logger.log('自动添加分组 item 成功');
-//             queryClient.invalidateQueries({ queryKey: ['groups', 'list'] });
-//         },
-//         onError: (error) => {
-//             logger.error('自动添加分组 item 失败:', error);
-//         },
-//     });
-// }
+    return useMutation({
+        mutationFn: async () => {
+            return apiClient.post<Group[]>('/api/v1/group/agentic-presets');
+        },
+        onSuccess: (data) => {
+            logger.log('Agentic coding groups created:', data);
+            queryClient.invalidateQueries({ queryKey: ['groups', 'list'] });
+        },
+        onError: (error) => {
+            logger.error('Agentic coding groups creation failed:', error);
+        },
+    });
+}

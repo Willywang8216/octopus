@@ -3,7 +3,6 @@
 import { useMemo } from 'react';
 import { useChannelList } from '@/api/endpoints/channel';
 import { Card } from './Card';
-import { TestPanel } from './TestPanel';
 import { useSearchStore, useToolbarViewOptionsStore } from '@/components/modules/toolbar';
 import { VirtualizedGrid } from '@/components/common/VirtualizedGrid';
 
@@ -45,18 +44,13 @@ export function Channel() {
     }, [sortedChannels, searchTerm, filter, healthFilter]);
 
     return (
-        <div className="flex h-full min-h-0 flex-col">
-            <TestPanel />
-            <div className="min-h-0 flex-1">
-                <VirtualizedGrid
-                    items={visibleChannels}
-                    layout={layout}
-                    columns={{ default: 1, md: 2, lg: 3 }}
-                    estimateItemHeight={216}
-                    getItemKey={(item) => `channel-${item.raw.id}`}
-                    renderItem={(item) => <Card channel={item.raw} stats={item.formatted} layout={layout} />}
-                />
-            </div>
-        </div>
+        <VirtualizedGrid
+            items={visibleChannels}
+            layout={layout}
+            columns={{ default: 1, md: 2, lg: 3 }}
+            estimateItemHeight={216}
+            getItemKey={(item) => `channel-${item.raw.id}`}
+            renderItem={(item) => <Card channel={item.raw} stats={item.formatted} layout={layout} />}
+        />
     );
 }

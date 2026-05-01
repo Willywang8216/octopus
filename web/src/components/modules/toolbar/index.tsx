@@ -87,7 +87,6 @@ export function Toolbar() {
     const setChannelHealthFilter = useToolbarViewOptionsStore((s) => s.setChannelHealthFilter);
     const setGroupFilter = useToolbarViewOptionsStore((s) => s.setGroupFilter);
     const setModelFilter = useToolbarViewOptionsStore((s) => s.setModelFilter);
-    const testAll = useTestAllChannels();
     const [expandedSearchItem, setExpandedSearchItem] = useState<ToolbarPage | null>(null);
     const searchExpanded = expandedSearchItem === toolbarItem;
 
@@ -99,7 +98,6 @@ export function Toolbar() {
         all: 'popover.filter.channel.all',
         enabled: 'popover.filter.channel.enabled',
         disabled: 'popover.filter.channel.disabled',
-        'funding-issue': 'popover.filter.channel.fundingIssue',
     };
     const groupFilterLabelKeys: Record<GroupFilter, string> = {
         all: 'popover.filter.group.all',
@@ -381,6 +379,7 @@ export function Toolbar() {
 function TestAllChannelsButton() {
     const t = useTranslations('toolbar');
     const tTest = useTranslations('channel.test');
+    const testAll = useTestAllChannels();
     const isPending = testAll.isPending;
     return (
         <button
@@ -393,8 +392,8 @@ function TestAllChannelsButton() {
                     {
                         onSuccess: (resp) => {
                             const summaries = resp.summaries ?? [];
-                            const totalPass = summaries.reduce((s, x) => s + x.success_count, 0);
-                            const totalProbes = summaries.reduce((s, x) => s + x.total_probes, 0);
+                            const totalPass = summaries.reduce((s: number, x) => s + x.success_count, 0);
+                            const totalProbes = summaries.reduce((s: number, x) => s + x.total_probes, 0);
                             toast.success(
                                 tTest('toastDoneAll', {
                                     channels: summaries.length,
@@ -403,7 +402,7 @@ function TestAllChannelsButton() {
                                 })
                             );
                         },
-                        onError: (err) => toast.error(err.message),
+                        onError: (err: Error) => toast.error(err.message),
                     }
                 );
             }}

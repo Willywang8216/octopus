@@ -48,6 +48,10 @@ func init() {
 				Handle(fetchModel),
 		).
 		AddRoute(
+			router.NewRoute("/check-duplicate", http.MethodPost).
+				Handle(checkDuplicateChannel),
+		).
+		AddRoute(
 			router.NewRoute("/test", http.MethodPost).
 				Handle(testChannel),
 		).
@@ -218,6 +222,19 @@ func fetchModel(c *gin.Context) {
 		return
 	}
 	resp.Success(c, models)
+}
+
+func checkDuplicateChannel(c *gin.Context) {
+	var request struct {
+		BaseUrls  []model.BaseUrl `json:"base_urls"`
+		Keys      []string        `json:"keys"`
+		ExcludeID int             `json:"exclude_id"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
+		return
+	}
+	resp.Success(c, op.ChannelFindDuplicates(request.BaseUrls, request.Keys, request.ExcludeID))
 }
 
 func syncChannel(c *gin.Context) {

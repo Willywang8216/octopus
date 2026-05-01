@@ -8,22 +8,8 @@ import { StatsChannel, type StatsMetricsFormatted } from './stats';
  * 渠道健康度
  */
 export type ChannelHealth = 'alive' | 'flaky' | 'zombie' | 'dead' | 'unknown';
-export type ChannelErrorClass = '' | 'network' | 'auth_or_quota' | 'upstream_error' | 'other';
 
-export type ChannelKeyModelStatus = {
-    id: number;
-    channel_id: number;
-    key_id: number;
-    model_name: string;
-    ok: boolean;
-    status_code: number;
-    latency_ms: number;
-    last_error: string;
-    error_class: ChannelErrorClass;
-    last_tested_at: number; // unix seconds
-};
-
-export type ChannelTestSummary = {
+export type ChannelHealthSummary = {
     total: number;
     ok: number;
     failed: number;
@@ -31,13 +17,16 @@ export type ChannelTestSummary = {
     health: ChannelHealth;
 };
 
-export type ChannelTestResponse = {
-    summary: ChannelTestSummary;
-    results: ChannelKeyModelStatus[];
+export type DuplicateInfo = {
+    channel_id: number;
+    channel_name: string;
+    match_type: 'endpoint_and_key' | 'endpoint' | 'key';
 };
 
-export type ChannelTestAllResponse = {
-    results: Record<string, ChannelTestResponse>;
+export type CheckDuplicateRequest = {
+    base_urls: BaseUrl[];
+    keys: string[];
+    exclude_id?: number;
 };
 
 /**
@@ -119,8 +108,10 @@ export type Channel = {
     name: string;
     type: ChannelType;
     enabled: boolean;
-    tags: string[];
+    tags?: string[];
     retry_after: number;
+    auto_disable_threshold?: number | null;
+    auto_disable_retry_hours?: number | null;
     base_urls: BaseUrl[];
     keys: ChannelKey[];
     model: string;
@@ -138,6 +129,8 @@ export type Channel = {
     disabled_class?: ChannelTestErrorClass;
     disabled_at?: number;
     last_test_at?: number;
+    health?: ChannelHealth;
+    test_summary?: ChannelHealthSummary | null;
 };
 
 /**
@@ -203,8 +196,9 @@ type ChannelServer = Omit<Channel, 'base_urls' | 'custom_header' | 'keys' | 'tag
     base_urls: BaseUrl[] | null;
     custom_header: CustomHeader[] | null;
     keys: ChannelKey[] | null;
+    tags?: string[] | null;
     health?: ChannelHealth;
-    test_summary?: ChannelTestSummary | null;
+    test_summary?: ChannelHealthSummary | null;
 };
 
 /**
@@ -288,6 +282,7 @@ export function useChannelList() {
                 base_urls: item.base_urls ?? [],
                 custom_header: item.custom_header ?? [],
                 keys: item.keys ?? [],
+                tags: item.tags ?? [],
                 health: item.health ?? 'unknown',
                 test_summary: item.test_summary ?? null,
             }) satisfies Channel,
@@ -455,6 +450,20 @@ export function useFetchModel() {
         },
         onError: (error) => {
             logger.error('模型列表获取失败:', error);
+        },
+    });
+}
+
+/**
+ * 检查渠道端点/API Key 是否与已有渠道重复。
+ */
+export function useCheckDuplicate() {
+    return useMutation({
+        mutationFn: async (data: CheckDuplicateRequest) => {
+            return apiClient.post<DuplicateInfo[]>('/api/v1/channel/check-duplicate', data);
+        },
+        onError: (error) => {
+            logger.error('渠道重复检查失败:', error);
         },
     });
 }
