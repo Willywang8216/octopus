@@ -184,11 +184,13 @@ export type ChannelTestSummary = {
     keys: ChannelTestKeySummary[] | null;
     tested_at: number;
     disabled?: ChannelDisabledTagDetail | null;
+    running?: boolean;
 };
 
 export type ChannelTestAllResponse = {
     summaries: ChannelTestSummary[] | null;
     skipped: Array<{ channel_id: number; channel_name: string; reason: string }> | null;
+    running?: boolean;
 };
 
 // Internal type: backend may return null for slice fields; normalize to [] in select()
@@ -525,9 +527,15 @@ export function useTestChannel() {
             return apiClient.post<ChannelTestSummary>('/api/v1/channel/test', data);
         },
         onSuccess: (data) => {
-            logger.log('渠道测试完成:', data);
+            logger.log(data.running ? '渠道测试已开始:' : '渠道测试完成:', data);
             queryClient.invalidateQueries({ queryKey: ['channels', 'list'] });
             queryClient.invalidateQueries({ queryKey: ['channels', 'test-results', data.channel_id] });
+            if (data.running) {
+                window.setTimeout(() => {
+                    queryClient.invalidateQueries({ queryKey: ['channels', 'list'] });
+                    queryClient.invalidateQueries({ queryKey: ['channels', 'test-results', data.channel_id] });
+                }, 15000);
+            }
         },
         onError: (error) => {
             logger.error('渠道测试失败:', error);
@@ -544,10 +552,16 @@ export function useTestAllChannels() {
         mutationFn: async (data?: { include_disabled_keys?: boolean; include_disabled_channels?: boolean }) => {
             return apiClient.post<ChannelTestAllResponse>('/api/v1/channel/test-all', data ?? {});
         },
-        onSuccess: () => {
-            logger.log('全量渠道测试完成');
+        onSuccess: (data) => {
+            logger.log(data.running ? '全量渠道测试已开始' : '全量渠道测试完成');
             queryClient.invalidateQueries({ queryKey: ['channels', 'list'] });
             queryClient.invalidateQueries({ queryKey: ['channels', 'test-results'] });
+            if (data.running) {
+                window.setTimeout(() => {
+                    queryClient.invalidateQueries({ queryKey: ['channels', 'list'] });
+                    queryClient.invalidateQueries({ queryKey: ['channels', 'test-results'] });
+                }, 30000);
+            }
         },
         onError: (error) => {
             logger.error('全量渠道测试失败:', error);

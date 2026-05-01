@@ -30,6 +30,7 @@ type ChannelTestSummary struct {
 	Keys         []ChannelTestKeySummary   `json:"keys"`
 	TestedAt     int64                     `json:"tested_at"`
 	Disabled     *ChannelDisabledTagDetail `json:"disabled,omitempty"`
+	Running      bool                      `json:"running,omitempty"`
 }
 
 // ChannelTestKeySummary describes a single key's results within a channel

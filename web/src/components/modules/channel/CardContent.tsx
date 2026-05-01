@@ -394,6 +394,10 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                                     { id: channel.id, include_disabled_keys: true },
                                                     {
                                                         onSuccess: (summary) => {
+                                                            if (summary.running) {
+                                                                toast.success(tTest('running'));
+                                                                return;
+                                                            }
                                                             toast.success(
                                                                 tTest('toastDone', {
                                                                     pass: summary.success_count,
@@ -532,6 +536,10 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                                     { id: channel.id, include_disabled_keys: true },
                                                     {
                                                         onSuccess: (s) => {
+                                                            if (s.running) {
+                                                                toast.success(tTest('running'));
+                                                                return;
+                                                            }
                                                             toast.success(
                                                                 tTest('toastDone', {
                                                                     pass: s.success_count,

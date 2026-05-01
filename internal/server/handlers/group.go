@@ -36,6 +36,10 @@ func init() {
 		AddRoute(
 			router.NewRoute("/coder-presets", http.MethodPost).
 				Handle(createCoderPresetGroups),
+		).
+		AddRoute(
+			router.NewRoute("/agentic-presets", http.MethodPost).
+				Handle(createCoderPresetGroups),
 		)
 }
 

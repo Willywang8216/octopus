@@ -391,6 +391,10 @@ function TestAllChannelsButton() {
                     { include_disabled_keys: true, include_disabled_channels: true },
                     {
                         onSuccess: (resp) => {
+                            if (resp.running) {
+                                toast.success(tTest('running'));
+                                return;
+                            }
                             const summaries = resp.summaries ?? [];
                             const totalPass = summaries.reduce((s: number, x) => s + x.success_count, 0);
                             const totalProbes = summaries.reduce((s: number, x) => s + x.total_probes, 0);

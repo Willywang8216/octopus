@@ -226,8 +226,8 @@ export function useCreateAgenticGroups() {
     const queryClient = useQueryClient();
 
     return useMutation({
-        mutationFn: async () => {
-            return apiClient.post<Group[]>('/api/v1/group/agentic-presets');
+        mutationFn: async (modelName = 'agentic-coder') => {
+            return apiClient.post<Group[]>('/api/v1/group/coder-presets', { model_name: modelName });
         },
         onSuccess: (data) => {
             logger.log('Agentic coding groups created:', data);
