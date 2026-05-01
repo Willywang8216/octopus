@@ -7,7 +7,6 @@ import (
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"github.com/bestruirui/octopus/internal/price"
-	"github.com/bestruirui/octopus/internal/relay/balancer"
 	"github.com/bestruirui/octopus/internal/utils/log"
 )
 
@@ -19,6 +18,7 @@ const (
 	TaskCleanLLM           = "clean_llm"
 	TaskBaseUrlDelay       = "base_url_delay"
 	TaskChannelHealthCheck = "channel_health_check"
+	TaskChannelKeySave     = "channel_key_save"
 )
 
 func Init() {

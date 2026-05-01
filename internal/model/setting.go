@@ -29,6 +29,7 @@ const (
 	SettingKeyRelayLogMaxContentBytes      SettingKey = "relay_log_max_content_bytes"      // 单条日志内容最大字节数，0=不限制
 	SettingKeyRelayLogVacuumInterval       SettingKey = "relay_log_vacuum_interval"        // 日志清理间隔(小时)，0=禁用
 	SettingKeyChannelKeyAutoDisableEnabled SettingKey = "channel_key_auto_disable_enabled" // 是否自动禁用故障key
+	SettingKeyAutoDisableRetryHours        SettingKey = "auto_disable_retry_hours"         // 自动禁用通道后的重试间隔(小时)
 )
 
 // IsInternal reports whether a setting key holds a server-side secret that
@@ -67,6 +68,7 @@ func DefaultSettings() []Setting {
 		{Key: SettingKeyRelayLogMaxContentBytes, Value: "65536"},
 		{Key: SettingKeyRelayLogVacuumInterval, Value: "24"},
 		{Key: SettingKeyChannelKeyAutoDisableEnabled, Value: "true"},
+		{Key: SettingKeyAutoDisableRetryHours, Value: "24"},
 	}
 }
 
@@ -80,7 +82,7 @@ func (s *Setting) Validate() error {
 		return nil
 	case SettingKeyStatsSaveInterval, SettingKeyChannelKeyRecheckInterval, SettingKeyChannelKeySaveInterval,
 		SettingKeyCircuitBreakerThreshold, SettingKeyCircuitBreakerCooldown, SettingKeyCircuitBreakerMaxCooldown,
-		SettingKeyGroupItemRecheckInterval:
+		SettingKeyGroupItemRecheckInterval, SettingKeyAutoDisableRetryHours:
 		if !isPositiveIntSettingValue(s.Value) {
 			return fmt.Errorf("%s must be a positive integer", s.Key)
 		}

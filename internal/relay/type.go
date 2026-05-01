@@ -79,6 +79,7 @@ type relayAttempt struct {
 type attemptResult struct {
 	Success      bool  // 是否成功
 	Written      bool  // 流式响应是否已开始写入（不可重试）
+	SkipChannel  bool  // 是否跳过当前通道继续下一个通道
 	BillingIssue bool  // 是否为余额/额度问题
 	Err          error // 失败时的错误
 }

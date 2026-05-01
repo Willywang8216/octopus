@@ -285,7 +285,7 @@ func persistTestRun(
 
 		keySummaries = append(keySummaries, ChannelTestKeySummary{
 			KeyID:          k.ID,
-			KeyPreview:     previewKey(k.ChannelKey),
+			KeyPreview:     previewKeyProbe(k.ChannelKey),
 			Remark:         k.Remark,
 			Enabled:        keyEnabled,
 			AutoDisabled:   keyAutoDisabled,
@@ -401,7 +401,7 @@ func ChannelTestResultsList(ctx context.Context, channelID int) (*ChannelTestSum
 		mr := resultsByKey[k.ID]
 		summary.Keys = append(summary.Keys, ChannelTestKeySummary{
 			KeyID:          k.ID,
-			KeyPreview:     previewKey(k.ChannelKey),
+			KeyPreview:     previewKeyProbe(k.ChannelKey),
 			Remark:         k.Remark,
 			Enabled:        k.Enabled,
 			AutoDisabled:   k.AutoDisabled,
@@ -447,7 +447,7 @@ func filterKeys(keys []model.ChannelKey, includeDisabled bool) []model.ChannelKe
 	return out
 }
 
-func previewKey(key string) string {
+func previewKeyProbe(key string) string {
 	if len(key) <= 10 {
 		return key
 	}

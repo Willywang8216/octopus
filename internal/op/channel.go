@@ -212,12 +212,12 @@ func ChannelSetTags(id int, tags []model.ChannelTag, retryAfter int64, enabled *
 }
 
 func ChannelAutoDisable(id int, tags []model.ChannelTag, ctx context.Context) error {
-	days, _ := SettingGetInt(model.SettingKeyAutoDisableRetryDays)
-	if days <= 0 {
-		days = 1
+	hours, _ := SettingGetInt(model.SettingKeyAutoDisableRetryHours)
+	if hours <= 0 {
+		hours = 24
 	}
 	enabled := false
-	return ChannelSetTags(id, tags, time.Now().Add(time.Duration(days)*24*time.Hour).Unix(), &enabled, ctx)
+	return ChannelSetTags(id, tags, time.Now().Add(time.Duration(hours)*time.Hour).Unix(), &enabled, ctx)
 }
 
 func ChannelRetryAutoDisabled(ctx context.Context) error {
@@ -950,6 +950,10 @@ func ChannelClearAutoDisabled(id int, ctx context.Context) error {
 	ch.Keys = keys
 	channelCache.Set(id, ch)
 	return nil
+}
+
+func ChannelAutoEnable(id int, ctx context.Context) error {
+	return ChannelClearAutoDisabled(id, ctx)
 }
 
 // ChannelKeySetStatusTag updates a key's status tag in cache and marks it for DB sync.

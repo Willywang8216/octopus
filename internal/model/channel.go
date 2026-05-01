@@ -71,11 +71,17 @@ type Channel struct {
 	ChannelProxy   *string               `json:"channel_proxy"`
 	Stats          *StatsChannel         `json:"stats,omitempty" gorm:"foreignKey:ChannelID"`
 	MatchRegex     *string               `json:"match_regex"`
+	Tags           []ChannelTag          `json:"tags" gorm:"serializer:json"`
+	RetryAfter     int64                 `json:"retry_after" gorm:"default:0"`
+	StatusTag      string                `json:"status_tag" gorm:"type:varchar(32);default:''"`
+	AutoDisabledAt *int64                `json:"auto_disabled_at"`
 	AutoDisabled   bool                  `json:"auto_disabled" gorm:"default:false"`
 	DisabledReason string                `json:"disabled_reason" gorm:"type:varchar(64);default:''"`
 	DisabledClass  ChannelTestErrorClass `json:"disabled_class" gorm:"type:varchar(32);default:''"`
 	DisabledAt     int64                 `json:"disabled_at" gorm:"default:0"`
 	LastTestAt     int64                 `json:"last_test_at" gorm:"default:0"`
+	AutoDisableThreshold  *int                  `json:"auto_disable_threshold"`
+	AutoDisableRetryHours *int                  `json:"auto_disable_retry_hours"`
 }
 
 type BaseUrl struct {
@@ -104,6 +110,10 @@ type ChannelKey struct {
 	LastUseTimeStamp int64                 `json:"last_use_time_stamp"`
 	TotalCost        float64               `json:"total_cost"`
 	Remark           string                `json:"remark"`
+	FailureCount     int                   `json:"failure_count" gorm:"default:0"`
+	LastError        string                `json:"last_error" gorm:"type:text"`
+	RetryAfter      int64                 `json:"retry_after" gorm:"default:0"`
+	StatusTag       string                `json:"status_tag" gorm:"type:varchar(32);default:''"`
 	AutoDisabled     bool                  `json:"auto_disabled" gorm:"default:false"`
 	DisabledReason   string                `json:"disabled_reason" gorm:"type:varchar(64);default:''"`
 	DisabledClass    ChannelTestErrorClass `json:"disabled_class" gorm:"type:varchar(32);default:''"`

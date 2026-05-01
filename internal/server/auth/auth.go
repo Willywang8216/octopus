@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"fmt"
 	"crypto/rand"
 	"fmt"
 	"math/big"

@@ -98,11 +98,19 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 			continue
 		}
 
-		// 粘性命中时优先沿用上次成功的 key，确保 (channel, key) 元组对会话保持有意义。
-		usedKey := channel.GetChannelKeyByID(iter.StickyKeyID())
-		if usedKey.ChannelKey == "" {
+		keys := channel.GetAvailableKeys()
+		if len(keys) == 0 {
 			iter.Skip(channel.ID, 0, channel.Name, "no available key")
 			continue
+		}
+		// 粘性命中时优先沿用上次成功的 key，确保 (channel, key) 元组对会话保持有意义。
+		if stickyKeyID := iter.StickyKeyID(); stickyKeyID > 0 {
+			for i, k := range keys {
+				if k.ID == stickyKeyID {
+					keys[0], keys[i] = keys[i], keys[0]
+					break
+				}
+			}
 		}
 		keyID := keys[0].ID
 
@@ -126,15 +134,11 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 			continue
 		}
 		if internalRequest.IsRerankRequest() && !outbound.IsRerankChannelType(channel.Type) {
-			iter.Skip(channel.ID, usedKey.ID, channel.Name, "channel type not compatible with rerank request")
-			continue
-		}
-		if internalRequest.IsRerankRequest() && !outbound.IsRerankChannelType(channel.Type) {
-			iter.Skip(channel.ID, usedKey.ID, channel.Name, "channel type not compatible with rerank request")
+			iter.Skip(channel.ID, keyID, channel.Name, "channel type not compatible with rerank request")
 			continue
 		}
 		if internalRequest.IsChatRequest() && !outbound.IsChatChannelType(channel.Type) {
-			iter.Skip(channel.ID, usedKey.ID, channel.Name, "channel type not compatible with chat request")
+			iter.Skip(channel.ID, keyID, channel.Name, "channel type not compatible with chat request")
 			continue
 		}
 
@@ -222,27 +226,27 @@ func (ra *relayAttempt) attempt() attemptResult {
 
 	// ====== 失败 ======
 	billingIssue := isBillingIssue(statusCode, fwdErr)
-op.ChannelMarkKeyFailure(ra.usedKey, statusCode, fwdErr, billingIssue)
+	op.ChannelMarkKeyFailure(ra.usedKey, statusCode, fwdErr, billingIssue)
 
-errorClass, disabledReason := helper.ClassifyChannelFailure(statusCode, fwdErr)
-if errorClass.IsAttentionNeeded() {
-	disabledReason = helper.HumanChannelFailureReason(errorClass, disabledReason)
-	ra.usedKey.Enabled = false
-	ra.usedKey.AutoDisabled = true
-	ra.usedKey.DisabledClass = errorClass
-	ra.usedKey.DisabledReason = disabledReason
-	if ra.usedKey.DisabledAt == 0 {
-		ra.usedKey.DisabledAt = time.Now().Unix()
+	errorClass, disabledReason := helper.ClassifyChannelFailure(statusCode, fwdErr)
+	if errorClass.IsAttentionNeeded() {
+		disabledReason = helper.HumanChannelFailureReason(errorClass, disabledReason)
+		ra.usedKey.Enabled = false
+		ra.usedKey.AutoDisabled = true
+		ra.usedKey.DisabledClass = errorClass
+		ra.usedKey.DisabledReason = disabledReason
+		if ra.usedKey.DisabledAt == 0 {
+			ra.usedKey.DisabledAt = time.Now().Unix()
+		}
+		if err := op.ChannelRuntimeAutoDisableKey(ra.channel.ID, ra.usedKey, errorClass, disabledReason, ra.c.Request.Context()); err != nil {
+			log.Warnf("failed to auto-disable key %d on channel %s: %v", ra.usedKey.ID, ra.channel.Name, err)
+			op.ChannelKeyUpdate(ra.usedKey)
+		}
 	}
-	if err := op.ChannelRuntimeAutoDisableKey(ra.channel.ID, ra.usedKey, errorClass, disabledReason, ra.c.Request.Context()); err != nil {
-		log.Warnf("failed to auto-disable key %d on channel %s: %v", ra.usedKey.ID, ra.channel.Name, err)
-		op.ChannelKeyUpdate(ra.usedKey)
-	}
-}
 
-if err := op.ChannelCheckAutoDisable(ra.channel.ID, billingIssue, ra.c.Request.Context()); err != nil {
-	log.Warnf("failed to check channel auto disable (channel=%d): %v", ra.channel.ID, err)
-}
+	if err := op.ChannelCheckAutoDisable(ra.channel.ID, billingIssue, ra.c.Request.Context()); err != nil {
+		log.Warnf("failed to check channel auto disable (channel=%d): %v", ra.channel.ID, err)
+	}
 
 	span.End(dbmodel.AttemptFailed, statusCode, fwdErr.Error())
 
@@ -254,21 +258,6 @@ if err := op.ChannelCheckAutoDisable(ra.channel.ID, billingIssue, ra.c.Request.C
 
 	// 熔断器：记录失败
 	balancer.RecordFailure(ra.channel.ID, ra.usedKey.ID, ra.attemptRequest.Model)
-
-	// Detect funding/quota issues and tag the key accordingly.
-	if tag := detectFundingIssue(statusCode, fwdErr.Error()); tag != "" {
-		log.Warnf("funding issue detected for channel %s key %d: %s (status=%d)",
-			ra.channel.Name, ra.usedKey.ID, tag, statusCode)
-		_ = op.ChannelKeySetStatusTag(ra.usedKey.ID, tag, true)
-
-		// If all keys are now disabled, auto-disable the entire channel.
-		if op.ChannelAllKeysDisabled(ra.channel.ID) {
-			bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			_ = op.ChannelSetAutoDisabled(ra.channel.ID, bgCtx)
-			log.Warnf("all keys exhausted for channel %s — channel auto-disabled", ra.channel.Name)
-		}
-	}
 
 	written := ra.c.Writer.Written()
 	if written {
@@ -548,9 +537,11 @@ func (ra *relayAttempt) maybeAutoDisableChannel(category string, statusCode int,
 		return
 	}
 
-	msg := fmt.Sprintf("auto-disabled: category=%s status=%d time=%s reason=all keys disabled | last=%s",
-		category, statusCode, time.Now().UTC().Format(time.RFC3339), reason)
-	_ = op.ChannelAutoDisable(ch.ID, msg, ra.c.Request.Context())
+	tags := []dbmodel.ChannelTag{dbmodel.ChannelTagAutoDisabled}
+	if category == "no_money" {
+		tags = append(tags, dbmodel.ChannelTagBillingIssue)
+	}
+	_ = op.ChannelAutoDisable(ch.ID, tags, ra.c.Request.Context())
 }
 
 // copyHeaders 复制请求头，过滤 hop-by-hop 头
