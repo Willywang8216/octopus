@@ -79,6 +79,8 @@ type Channel struct {
 	DisabledClass  ChannelTestErrorClass `json:"disabled_class" gorm:"type:varchar(32);default:''"`
 	DisabledAt     int64                 `json:"disabled_at" gorm:"default:0"`
 	LastTestAt     int64                 `json:"last_test_at" gorm:"default:0"`
+	Health         ChannelHealth         `json:"health" gorm:"-"`
+	TestSummary    *ChannelTestSummary   `json:"test_summary,omitempty" gorm:"-"`
 	AutoDisableThreshold  *int                  `json:"auto_disable_threshold"`
 	AutoDisableRetryHours *int                  `json:"auto_disable_retry_hours"`
 }
