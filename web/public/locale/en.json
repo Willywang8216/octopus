@@ -559,7 +559,8 @@
                 "key": "Current key",
                 "model": "Current model",
                 "passed": "Passed",
-                "failedCount": "Failed"
+                "failedCount": "Failed",
+                "testingKeyModel": "Testing current key against {model}"
             }
         },
         "detail": {

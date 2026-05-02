@@ -559,7 +559,8 @@
                 "key": "目前 Key",
                 "model": "目前模型",
                 "passed": "成功",
-                "failedCount": "失敗"
+                "failedCount": "失敗",
+                "testingKeyModel": "正在用此 Key 測試 {model}"
             }
         },
         "detail": {

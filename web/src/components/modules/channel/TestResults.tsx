@@ -78,11 +78,12 @@ function formatTested(testedAt: number) {
  * KeyResultsRow renders one expandable row per channel key, with a count
  * badge and the full per-model list inside the accordion.
  */
-function KeyResultsRow({ keySummary }: { keySummary: ChannelTestKeySummary }) {
+function KeyResultsRow({ keySummary, progress }: { keySummary: ChannelTestKeySummary; progress?: ChannelTestProgress | null }) {
     const t = useTranslations('channel.test');
     const [open, setOpen] = useState(false);
     const total = keySummary.success_count + keySummary.fail_count;
     const hasFailures = keySummary.fail_count > 0;
+    const isActiveKey = !!progress?.running && progress.current_key_id === keySummary.key_id;
 
     return (
         <div className="rounded-2xl border bg-card overflow-hidden">
@@ -128,7 +129,13 @@ function KeyResultsRow({ keySummary }: { keySummary: ChannelTestKeySummary }) {
             </button>
             {open && (
                 <div className="border-t bg-background/60 divide-y">
-                    {(keySummary.models?.length ?? 0) === 0 && (
+                    {isActiveKey && (
+                        <div className="p-3 text-xs text-orange-700 dark:text-orange-300 bg-orange-500/10 flex items-center gap-2">
+                            <Activity className="size-3.5 animate-pulse" />
+                            {t('progress.testingKeyModel', { model: progress?.current_model || t('progress.waiting') })}
+                        </div>
+                    )}
+                    {(keySummary.models?.length ?? 0) === 0 && !isActiveKey && (
                         <div className="p-3 text-xs text-muted-foreground text-center">{t('noModelsTested')}</div>
                     )}
                     {(keySummary.models ?? []).map((m) => (
@@ -331,7 +338,7 @@ export function TestResults({
                     </div>
                 )}
                 {(summary.keys ?? []).map((k) => (
-                    <KeyResultsRow key={`${channel.id}-${k.key_id}`} keySummary={k} />
+                    <KeyResultsRow key={`${channel.id}-${k.key_id}`} keySummary={k} progress={progress} />
                 ))}
             </div>
         </div>

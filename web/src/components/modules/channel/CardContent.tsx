@@ -20,6 +20,7 @@ import {
     useChannelTestResults,
     useChannelTestProgress,
     type Channel,
+    type ChannelTestProgress,
     type DuplicateInfo,
     type UpdateChannelRequest,
 } from '@/api/endpoints/channel';
@@ -51,6 +52,26 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
     const setSearchTerm = useSearchStore((state) => state.setSearchTerm);
     const [isEditing, setIsEditing] = useState(false);
     const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+    const fallbackProgress: ChannelTestProgress | null = testChannel.data?.running ? {
+        channel_id: channel.id,
+        channel_name: channel.name,
+        running: true,
+        phase: 'waiting',
+        current_key_id: 0,
+        current_key: '',
+        current_model: '',
+        total_keys: testChannel.data.total_keys,
+        total_models: testChannel.data.total_models,
+        total_probes: testChannel.data.total_keys * testChannel.data.total_models,
+        completed_probes: 0,
+        success_count: 0,
+        fail_count: 0,
+        started_at: testChannel.data.tested_at || Math.floor(Date.now() / 1000),
+        updated_at: Math.floor(Date.now() / 1000),
+        finished_at: 0,
+        last_error: '',
+    } : null;
+    const effectiveTestProgress = liveTestProgress.data ?? channel.test_progress ?? fallbackProgress;
     const [formData, setFormData] = useState<ChannelFormData>({
         name: channel.name,
         type: channel.type,
@@ -400,7 +421,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                             type="button"
                                             variant="ghost"
                                             size="sm"
-                                            disabled={testChannel.isPending}
+                                            disabled={testChannel.isPending || !!effectiveTestProgress?.running}
                                             onClick={() => {
                                                 testChannel.mutate(
                                                     { id: channel.id, include_disabled_keys: true },
@@ -424,7 +445,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                             className="h-7 rounded-lg gap-1 text-xs"
                                         >
                                             <PlayCircle className={cn('size-3.5', testChannel.isPending && 'animate-pulse')} />
-                                            {testChannel.isPending ? t('test.testing') : t('test.testAll')}
+                                            {testChannel.isPending || effectiveTestProgress?.running ? t('test.testing') : t('test.testAll')}
                                         </Button>
                                     </div>
                                     <div className="rounded-2xl border bg-card overflow-hidden">
@@ -542,7 +563,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                             type="button"
                                             size="sm"
                                             variant="secondary"
-                                            disabled={testChannel.isPending}
+                                            disabled={testChannel.isPending || !!effectiveTestProgress?.running}
                                             onClick={() => {
                                                 testChannel.mutate(
                                                     { id: channel.id, include_disabled_keys: true },
@@ -565,7 +586,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                             }}
                                             className="h-7 rounded-xl"
                                         >
-                                            {testChannel.isPending ? (
+                                            {testChannel.isPending || effectiveTestProgress?.running ? (
                                                 <>
                                                     <Loader2 className="size-3.5 animate-spin" />
                                                     {tTest('running')}
@@ -582,6 +603,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                         channel={channel}
                                         summary={testChannel.data ?? cachedTestResults.data ?? null}
                                         isPending={testChannel.isPending || cachedTestResults.isLoading}
+                                        progress={effectiveTestProgress}
                                     />
                                 </section>
 
