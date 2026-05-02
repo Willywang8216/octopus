@@ -136,3 +136,22 @@ func TestResultsDelByKey(ctx context.Context, channelID, keyID int) error {
 	testResultsCache.Unlock()
 	return nil
 }
+
+// ChannelSuccessfulTestKeyIDs returns key IDs that most recently tested OK for
+// a specific (channel, model) pair. The relay uses this as a routing hint: it
+// prefers known-working keys for the requested model but can still fall back to
+// other enabled keys if all preferred keys are circuit-broken or unavailable.
+func ChannelSuccessfulTestKeyIDs(ctx context.Context, channelID int, modelName string) (map[int]struct{}, error) {
+	var rows []model.ChannelTestResult
+	if err := db.GetDB().WithContext(ctx).
+		Select("key_id").
+		Where("channel_id = ? AND model = ? AND success = ?", channelID, modelName, true).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[int]struct{}, len(rows))
+	for _, row := range rows {
+		out[row.KeyID] = struct{}{}
+	}
+	return out, nil
+}

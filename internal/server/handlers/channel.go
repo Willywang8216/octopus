@@ -267,12 +267,24 @@ func testChannel(c *gin.Context) {
 		return
 	}
 
-	summary, err := task.ChannelTestResultsList(c.Request.Context(), request.ID)
+	channel, err := op.ChannelGet(request.ID, c.Request.Context())
 	if err != nil {
-		resp.Error(c, http.StatusInternalServerError, err.Error())
+		resp.Error(c, http.StatusNotFound, err.Error())
 		return
 	}
-	summary.Running = true
+	modelText := strings.Trim(strings.TrimSpace(channel.Model+","+channel.CustomModel), ",")
+	totalModels := 0
+	if modelText != "" {
+		totalModels = len(strings.Split(modelText, ","))
+	}
+	summary := &task.ChannelTestSummary{
+		ChannelID:   channel.ID,
+		ChannelName: channel.Name,
+		TotalKeys:   len(channel.Keys),
+		TotalModels: totalModels,
+		TestedAt:    channel.LastTestAt,
+		Running:     true,
+	}
 
 	models := append([]string(nil), request.Models...)
 	go func(channelID int, modelFilter []string, includeDisabledKeys bool) {

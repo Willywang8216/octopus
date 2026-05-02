@@ -103,8 +103,22 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 			iter.Skip(channel.ID, 0, channel.Name, "no available key")
 			continue
 		}
-		// 粘性命中时优先沿用上次成功的 key，确保 (channel, key) 元组对会话保持有意义。
-		if stickyKeyID := iter.StickyKeyID(); stickyKeyID > 0 {
+
+		// Prefer keys that have a saved successful probe for the exact model.
+		// If there is no saved success, keep the previous sticky-key behaviour.
+		if successfulKeyIDs, err := op.ChannelSuccessfulTestKeyIDs(c.Request.Context(), channel.ID, item.ModelName); err == nil && len(successfulKeyIDs) > 0 {
+			preferred := make([]dbmodel.ChannelKey, 0, len(keys))
+			fallback := make([]dbmodel.ChannelKey, 0, len(keys))
+			for _, key := range keys {
+				if _, ok := successfulKeyIDs[key.ID]; ok {
+					preferred = append(preferred, key)
+				} else {
+					fallback = append(fallback, key)
+				}
+			}
+			keys = append(preferred, fallback...)
+		} else if stickyKeyID := iter.StickyKeyID(); stickyKeyID > 0 {
+			// 粘性命中时优先沿用上次成功的 key，确保 (channel, key) 元组对会话保持有意义。
 			for i, k := range keys {
 				if k.ID == stickyKeyID {
 					keys[0], keys[i] = keys[i], keys[0]
