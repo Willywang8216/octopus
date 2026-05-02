@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"net/http"
+	"sync"
 	"strconv"
 	"strings"
 	"time"
@@ -71,7 +72,66 @@ func init() {
 		AddRoute(
 			router.NewRoute("/test-results/:id", http.MethodGet).
 				Handle(getChannelTestResults),
+		).
+		AddRoute(
+			router.NewRoute("/test-all-status", http.MethodGet).
+				Handle(getChannelTestAllStatus),
 		)
+}
+
+
+type channelTestAllStatus struct {
+	Running           bool   `json:"running"`
+	StartedAt         int64  `json:"started_at"`
+	FinishedAt        int64  `json:"finished_at"`
+	TotalChannels     int    `json:"total_channels"`
+	CompletedChannels int    `json:"completed_channels"`
+	FailedChannels    int    `json:"failed_channels"`
+	LastError         string `json:"last_error"`
+}
+
+var channelTestAllState = struct {
+	sync.Mutex
+	status channelTestAllStatus
+}{}
+
+func snapshotChannelTestAllStatus() channelTestAllStatus {
+	channelTestAllState.Lock()
+	defer channelTestAllState.Unlock()
+	return channelTestAllState.status
+}
+
+func startChannelTestAllStatus(total int) (channelTestAllStatus, bool) {
+	channelTestAllState.Lock()
+	defer channelTestAllState.Unlock()
+	if channelTestAllState.status.Running {
+		return channelTestAllState.status, false
+	}
+	now := time.Now().Unix()
+	channelTestAllState.status = channelTestAllStatus{
+		Running:       total > 0,
+		StartedAt:     now,
+		FinishedAt:    now,
+		TotalChannels: total,
+	}
+	if total > 0 {
+		channelTestAllState.status.FinishedAt = 0
+	}
+	return channelTestAllState.status, total > 0
+}
+
+func updateChannelTestAllStatus(err error) {
+	channelTestAllState.Lock()
+	defer channelTestAllState.Unlock()
+	channelTestAllState.status.CompletedChannels++
+	if err != nil {
+		channelTestAllState.status.FailedChannels++
+		channelTestAllState.status.LastError = err.Error()
+	}
+	if channelTestAllState.status.CompletedChannels >= channelTestAllState.status.TotalChannels {
+		channelTestAllState.status.Running = false
+		channelTestAllState.status.FinishedAt = time.Now().Unix()
+	}
 }
 
 func listChannel(c *gin.Context) {
@@ -344,20 +404,26 @@ func testAllChannels(c *gin.Context) {
 		summaries = append(summaries, summary)
 	}
 
-	go func(channels []model.Channel, includeDisabledKeys bool) {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-		defer cancel()
-		for _, ch := range channels {
-			if _, err := task.ChannelTestRun(ctx, ch.ID, nil, includeDisabledKeys); err != nil {
-				log.Warnf("channel test-all failed for channel %d: %v", ch.ID, err)
+	status, started := startChannelTestAllStatus(len(targetChannels))
+	if started {
+		go func(channels []model.Channel, includeDisabledKeys bool) {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+			defer cancel()
+			for _, ch := range channels {
+				_, err := task.ChannelTestRun(ctx, ch.ID, nil, includeDisabledKeys)
+				if err != nil {
+					log.Warnf("channel test-all failed for channel %d: %v", ch.ID, err)
+				}
+				updateChannelTestAllStatus(err)
 			}
-		}
-	}(targetChannels, request.IncludeDisabledKeys)
+		}(targetChannels, request.IncludeDisabledKeys)
+	}
 
 	resp.Success(c, map[string]any{
 		"summaries": summaries,
 		"skipped":   skipped,
-		"running":   true,
+		"running":   status.Running,
+		"status":    status,
 	})
 }
 
@@ -377,4 +443,8 @@ func getChannelTestResults(c *gin.Context) {
 		return
 	}
 	resp.Success(c, summary)
+}
+
+func getChannelTestAllStatus(c *gin.Context) {
+	resp.Success(c, snapshotChannelTestAllStatus())
 }

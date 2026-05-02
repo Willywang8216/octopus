@@ -530,7 +530,10 @@
                 "transform_error": "Local error",
                 "unsupported_channel": "Unsupported channel type",
                 "other": "Failed"
-            }
+            },
+            "toastStartedAll": "Started testing {total} channels in the background",
+            "toastDoneAllChannels": "Channel testing finished — {completed}/{total} channels checked, {failed} failed",
+            "progressAll": "Testing channels: {completed}/{total}"
         },
         "detail": {
             "test": {

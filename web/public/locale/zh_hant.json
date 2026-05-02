@@ -530,7 +530,10 @@
                 "transform_error": "本機錯誤",
                 "unsupported_channel": "不支援的供應源類型",
                 "other": "失敗"
-            }
+            },
+            "toastStartedAll": "已在背景開始測試 {total} 個供應源",
+            "toastDoneAllChannels": "供應源測試完成 — 已檢查 {completed}/{total} 個供應源，失敗 {failed} 個",
+            "progressAll": "供應源測試中：{completed}/{total}"
         },
         "detail": {
             "test": {

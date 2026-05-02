@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowUpAZ, Clock3, LayoutGrid, List, Loader2, Plus, Search, SlidersHorizontal, Stethoscope, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -16,9 +16,10 @@ import { useNavStore, type NavItem } from '@/components/modules/navbar';
 import { CreateDialogContent as ChannelCreateContent } from '@/components/modules/channel/Create';
 import { CreateDialogContent as GroupCreateContent } from '@/components/modules/group/Create';
 import { CreateDialogContent as ModelCreateContent } from '@/components/modules/model/Create';
-import { useTestAllChannels } from '@/api/endpoints/channel';
+import { useChannelTestAllStatus, useTestAllChannels } from '@/api/endpoints/channel';
 import { toast } from '@/components/common/Toast';
 import { useTranslations } from 'next-intl';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSearchStore } from './search-store';
 import {
     useToolbarViewOptionsStore,
@@ -379,8 +380,31 @@ export function Toolbar() {
 function TestAllChannelsButton() {
     const t = useTranslations('toolbar');
     const tTest = useTranslations('channel.test');
+    const queryClient = useQueryClient();
     const testAll = useTestAllChannels();
-    const isPending = testAll.isPending;
+    const statusQuery = useChannelTestAllStatus(true);
+    const status = statusQuery.data;
+    const isBackgroundRunning = Boolean(status?.running);
+    const [sawBackgroundRun, setSawBackgroundRun] = useState(false);
+    const isPending = testAll.isPending || isBackgroundRunning;
+
+    useEffect(() => {
+        if (status?.running) {
+            setSawBackgroundRun(true);
+            return;
+        }
+        if (sawBackgroundRun && status && status.finished_at > 0) {
+            setSawBackgroundRun(false);
+            queryClient.invalidateQueries({ queryKey: ['channels', 'list'] });
+            queryClient.invalidateQueries({ queryKey: ['channels', 'test-results'] });
+            toast.success(tTest('toastDoneAllChannels', {
+                completed: status.completed_channels,
+                total: status.total_channels,
+                failed: status.failed_channels,
+            }));
+        }
+    }, [queryClient, sawBackgroundRun, status, tTest]);
+
     return (
         <button
             type="button"
@@ -392,7 +416,10 @@ function TestAllChannelsButton() {
                     {
                         onSuccess: (resp) => {
                             if (resp.running) {
-                                toast.success(tTest('running'));
+                                toast.success(tTest('toastStartedAll', {
+                                    total: resp.status?.total_channels ?? 0,
+                                }));
+                                statusQuery.refetch();
                                 return;
                             }
                             const summaries = resp.summaries ?? [];
@@ -415,7 +442,7 @@ function TestAllChannelsButton() {
                 size: 'icon',
                 className: 'rounded-xl transition-none hover:bg-transparent text-muted-foreground hover:text-foreground disabled:opacity-50',
             })}
-            title={t('testAllAriaLabel')}
+            title={isBackgroundRunning && status ? tTest('progressAll', { completed: status.completed_channels, total: status.total_channels }) : t('testAllAriaLabel')}
         >
             {isPending ? (
                 <Loader2 className="size-4 animate-spin" />

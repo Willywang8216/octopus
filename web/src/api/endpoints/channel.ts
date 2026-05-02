@@ -187,10 +187,21 @@ export type ChannelTestSummary = {
     running?: boolean;
 };
 
+export type ChannelTestAllStatus = {
+    running: boolean;
+    started_at: number;
+    finished_at: number;
+    total_channels: number;
+    completed_channels: number;
+    failed_channels: number;
+    last_error: string;
+};
+
 export type ChannelTestAllResponse = {
     summaries: ChannelTestSummary[] | null;
     skipped: Array<{ channel_id: number; channel_name: string; reason: string }> | null;
     running?: boolean;
+    status?: ChannelTestAllStatus;
 };
 
 // Internal type: backend may return null for slice fields; normalize to [] in select()
@@ -566,6 +577,19 @@ export function useTestAllChannels() {
         onError: (error) => {
             logger.error('全量渠道测试失败:', error);
         },
+    });
+}
+
+
+/**
+ * Poll the current background test-all job status.
+ */
+export function useChannelTestAllStatus(enabled = true) {
+    return useQuery({
+        queryKey: ['channels', 'test-all-status'],
+        queryFn: async () => apiClient.get<ChannelTestAllStatus>('/api/v1/channel/test-all-status'),
+        enabled,
+        refetchInterval: enabled ? 5000 : false,
     });
 }
 

@@ -530,7 +530,10 @@
                 "transform_error": "本地错误",
                 "unsupported_channel": "不支持的渠道类型",
                 "other": "失败"
-            }
+            },
+            "toastStartedAll": "已在后台开始测试 {total} 个渠道",
+            "toastDoneAllChannels": "渠道测试完成 — 已检查 {completed}/{total} 个渠道，失败 {failed} 个",
+            "progressAll": "渠道测试中：{completed}/{total}"
         },
         "detail": {
             "test": {
