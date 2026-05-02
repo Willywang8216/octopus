@@ -29,6 +29,15 @@ export type CheckDuplicateRequest = {
     exclude_id?: number;
 };
 
+export type CombineChannelRequest = {
+    target_id: number;
+    base_urls: BaseUrl[];
+    keys: Array<Pick<ChannelKey, 'enabled' | 'channel_key' | 'remark'>>;
+    model?: string;
+    custom_model?: string;
+    custom_header?: CustomHeader[];
+};
+
 /**
  * 渠道类型枚举
  */
@@ -477,6 +486,28 @@ export function useCheckDuplicate() {
         },
         onError: (error) => {
             logger.error('渠道重复检查失败:', error);
+        },
+    });
+}
+
+/**
+ * 合并新渠道草稿到已有重复渠道。
+ */
+export function useCombineChannel() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: async (data: CombineChannelRequest) => {
+            return apiClient.post<ChannelServer>('/api/v1/channel/combine', data);
+        },
+        onSuccess: (data) => {
+            logger.log('渠道合并成功:', data);
+            queryClient.invalidateQueries({ queryKey: ['channels', 'list'] });
+            queryClient.invalidateQueries({ queryKey: ['models', 'channel'] });
+            queryClient.invalidateQueries({ queryKey: ['models', 'list'] });
+        },
+        onError: (error) => {
+            logger.error('渠道合并失败:', error);
         },
     });
 }

@@ -19,6 +19,7 @@ import {
     useTestChannel,
     useChannelTestResults,
     type Channel,
+    type DuplicateInfo,
     type UpdateChannelRequest,
 } from '@/api/endpoints/channel';
 import {
@@ -37,6 +38,7 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { TestResults, AttentionTag } from './TestResults';
 import { toast } from '@/components/common/Toast';
+import { useSearchStore } from '@/components/modules/toolbar';
 
 export function CardContent({ channel, stats }: { channel: Channel; stats: StatsMetricsFormatted }) {
     const { setIsOpen } = useMorphingDialog();
@@ -44,6 +46,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
     const deleteChannel = useDeleteChannel();
     const testChannel = useTestChannel();
     const cachedTestResults = useChannelTestResults(channel.id);
+    const setSearchTerm = useSearchStore((state) => state.setSearchTerm);
     const [isEditing, setIsEditing] = useState(false);
     const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
     const [formData, setFormData] = useState<ChannelFormData>({
@@ -179,6 +182,13 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                 setIsOpen(false);
             }
         });
+    };
+
+    const handleOpenDuplicate = (duplicate: DuplicateInfo) => {
+        setSearchTerm('channel', duplicate.channel_name);
+        setIsEditing(false);
+        setIsOpen(false);
+        toast.info(t('duplicateOpenHint', { name: duplicate.channel_name }));
     };
 
     const handleDeleteClick = () => {
@@ -623,6 +633,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                 cancelText={t('actions.cancel')}
                                 idPrefix="channel"
                                 excludeChannelId={channel.id}
+                                onDuplicateNavigate={handleOpenDuplicate}
                             />
                         </TabsContent>
                     </TabsContents>

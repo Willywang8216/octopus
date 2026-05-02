@@ -3,9 +3,9 @@ package handlers
 import (
 	"context"
 	"net/http"
-	"sync"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bestruirui/octopus/internal/helper"
@@ -52,6 +52,10 @@ func init() {
 				Handle(checkDuplicateChannel),
 		).
 		AddRoute(
+			router.NewRoute("/combine", http.MethodPost).
+				Handle(combineChannel),
+		).
+		AddRoute(
 			router.NewRoute("/test", http.MethodPost).
 				Handle(testChannel),
 		).
@@ -78,7 +82,6 @@ func init() {
 				Handle(getChannelTestAllStatus),
 		)
 }
-
 
 type channelTestAllStatus struct {
 	Running           bool   `json:"running"`
@@ -294,6 +297,33 @@ func checkDuplicateChannel(c *gin.Context) {
 		return
 	}
 	resp.Success(c, op.ChannelFindDuplicates(request.BaseUrls, request.Keys, request.ExcludeID))
+}
+
+func combineChannel(c *gin.Context) {
+	var request struct {
+		TargetID     int                          `json:"target_id"`
+		BaseUrls     []model.BaseUrl              `json:"base_urls"`
+		Keys         []model.ChannelKeyAddRequest `json:"keys"`
+		Model        string                       `json:"model"`
+		CustomModel  string                       `json:"custom_model"`
+		CustomHeader []model.CustomHeader         `json:"custom_header"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
+		return
+	}
+	if request.TargetID <= 0 {
+		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidParam)
+		return
+	}
+	channel, err := op.ChannelCombineInto(request.TargetID, request.BaseUrls, request.Keys, request.Model, request.CustomModel, request.CustomHeader, c.Request.Context())
+	if err != nil {
+		resp.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	stats := op.StatsChannelGet(channel.ID)
+	channel.Stats = &stats
+	resp.Success(c, channel)
 }
 
 func syncChannel(c *gin.Context) {

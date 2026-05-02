@@ -371,7 +371,10 @@
         "create": {
             "title": "Create Group",
             "submit": "Create",
-            "submitting": "Creating..."
+            "submitting": "Creating...",
+            "duplicateOpenHint": "Showing existing channel: {name}",
+            "combineSuccess": "Merged into {name}",
+            "combineFailed": "Failed to merge channel"
         },
         "preset": {
             "title": "Coder presets",
@@ -386,6 +389,7 @@
             "empty": "No rules"
         },
         "detail": {
+            "duplicateOpenHint": "Showing existing channel: {name}",
             "actions": {
                 "edit": "Edit",
                 "cancel": "Cancel",
@@ -645,6 +649,11 @@
             "dupMatchEndpointAndKey": "same endpoint and key",
             "dupMatchEndpoint": "same endpoint",
             "dupMatchKey": "same key",
+            "duplicateBlocked": "This endpoint or API key already exists. Open or combine with the duplicate channel first.",
+            "openDuplicate": "Open",
+            "combineDuplicate": "Combine",
+            "combiningDuplicate": "Combining...",
+            "resolveDuplicateFirst": "Resolve duplicate first",
             "autoDisableTitle": "Auto Disable",
             "autoDisableHint": "Override global settings for this channel. Leave empty to use global defaults.",
             "autoDisableThreshold": "Failure threshold",

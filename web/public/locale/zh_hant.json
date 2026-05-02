@@ -371,7 +371,10 @@
         "create": {
             "title": "建立分組",
             "submit": "建立",
-            "submitting": "建立中..."
+            "submitting": "建立中...",
+            "duplicateOpenHint": "正在顯示既有供應源：{name}",
+            "combineSuccess": "已合併到 {name}",
+            "combineFailed": "合併供應源失敗"
         },
         "preset": {
             "title": "編碼器預設",
@@ -386,6 +389,7 @@
             "empty": "暫無規則"
         },
         "detail": {
+            "duplicateOpenHint": "正在顯示既有供應源：{name}",
             "actions": {
                 "edit": "編輯",
                 "cancel": "取消",
@@ -645,6 +649,11 @@
             "dupMatchEndpointAndKey": "相同端點和金鑰",
             "dupMatchEndpoint": "相同端點",
             "dupMatchKey": "相同金鑰",
+            "duplicateBlocked": "該端點或 API Key 已存在。請先開啟或合併到重複供應源。",
+            "openDuplicate": "開啟",
+            "combineDuplicate": "合併",
+            "combiningDuplicate": "合併中...",
+            "resolveDuplicateFirst": "先處理重複供應源",
             "autoDisableTitle": "自動停用",
             "autoDisableHint": "覆蓋全域設定。留空使用全域預設值。",
             "autoDisableThreshold": "失敗閾值",

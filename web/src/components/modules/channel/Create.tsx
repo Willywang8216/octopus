@@ -5,13 +5,17 @@ import {
     MorphingDialogDescription,
     useMorphingDialog,
 } from '@/components/ui/morphing-dialog';
-import { useCreateChannel, ChannelType, AutoGroupType } from '@/api/endpoints/channel';
+import { useCreateChannel, useCombineChannel, ChannelType, AutoGroupType, type CombineChannelRequest, type CreateChannelRequest, type DuplicateInfo } from '@/api/endpoints/channel';
 import { useTranslations } from 'next-intl';
 import { ChannelForm, type ChannelFormData } from './Form';
+import { useSearchStore } from '@/components/modules/toolbar';
+import { toast } from '@/components/common/Toast';
 
 export function CreateDialogContent() {
     const { setIsOpen } = useMorphingDialog();
     const createChannel = useCreateChannel();
+    const combineChannel = useCombineChannel();
+    const setSearchTerm = useSearchStore((state) => state.setSearchTerm);
     const [formData, setFormData] = useState<ChannelFormData>({
         name: '',
         type: ChannelType.OpenAIChat,
@@ -32,63 +36,96 @@ export function CreateDialogContent() {
     });
     const t = useTranslations('channel.create');
 
-    const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-        event.preventDefault();
+    const resetForm = () => {
+        setFormData({
+            name: '',
+            type: ChannelType.OpenAIChat,
+            base_urls: [{ url: '', delay: 0 }],
+            custom_header: [],
+            channel_proxy: '',
+            param_override: '',
+            keys: [{ enabled: true, channel_key: '', remark: '' }],
+            model: '',
+            custom_model: '',
+            auto_sync: false,
+            auto_group: AutoGroupType.None,
+            enabled: true,
+            proxy: false,
+            match_regex: '',
+            auto_disable_threshold: '',
+            auto_disable_retry_hours: '',
+        });
+    };
+
+    const buildCreatePayload = (): CreateChannelRequest => {
         const normalizedBaseUrls = (formData.base_urls ?? []).filter((u) => u.url.trim()).map((u) => ({
             url: u.url.trim(),
             delay: Number(u.delay || 0),
         }));
         const normalizedKeys = formData.keys
             .filter((k) => k.channel_key.trim())
-            .map((k) => ({ enabled: k.enabled, channel_key: k.channel_key, remark: k.remark ?? '' }));
+            .map((k) => ({ enabled: k.enabled, channel_key: k.channel_key.trim(), remark: k.remark ?? '' }));
         const normalizedHeaders = (formData.custom_header ?? [])
             .map((h) => ({ header_key: h.header_key.trim(), header_value: h.header_value }))
             .filter((h) => h.header_key && h.header_value !== '');
 
         const channelProxy = formData.channel_proxy.trim();
         const paramOverride = formData.param_override.trim();
-        createChannel.mutate(
-            {
-                name: formData.name,
-                type: formData.type,
-                enabled: formData.enabled,
-                base_urls: normalizedBaseUrls,
-                keys: normalizedKeys,
-                model: formData.model,
-                custom_model: formData.custom_model,
-                proxy: formData.proxy,
-                auto_sync: formData.auto_sync,
-                auto_group: formData.auto_group,
-                custom_header: normalizedHeaders,
-                channel_proxy: channelProxy,
-                param_override: paramOverride,
-                match_regex: formData.match_regex.trim(),
-                auto_disable_threshold: formData.auto_disable_threshold ? Number(formData.auto_disable_threshold) : null,
-                auto_disable_retry_hours: formData.auto_disable_retry_hours ? Number(formData.auto_disable_retry_hours) : null,
+        return {
+            name: formData.name,
+            type: formData.type,
+            enabled: formData.enabled,
+            base_urls: normalizedBaseUrls,
+            keys: normalizedKeys,
+            model: formData.model,
+            custom_model: formData.custom_model,
+            proxy: formData.proxy,
+            auto_sync: formData.auto_sync,
+            auto_group: formData.auto_group,
+            custom_header: normalizedHeaders,
+            channel_proxy: channelProxy,
+            param_override: paramOverride,
+            match_regex: formData.match_regex.trim(),
+            auto_disable_threshold: formData.auto_disable_threshold ? Number(formData.auto_disable_threshold) : null,
+            auto_disable_retry_hours: formData.auto_disable_retry_hours ? Number(formData.auto_disable_retry_hours) : null,
+        };
+    };
+
+    const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        createChannel.mutate(buildCreatePayload(), {
+            onSuccess: () => {
+                resetForm();
+                setIsOpen(false);
+            }
+        });
+    };
+
+    const handleOpenDuplicate = (duplicate: DuplicateInfo) => {
+        setSearchTerm('channel', duplicate.channel_name);
+        setIsOpen(false);
+        toast.info(t('duplicateOpenHint', { name: duplicate.channel_name }));
+    };
+
+    const handleCombineDuplicate = (duplicate: DuplicateInfo) => {
+        const payload = buildCreatePayload();
+        const combinePayload: CombineChannelRequest = {
+            target_id: duplicate.channel_id,
+            base_urls: payload.base_urls,
+            keys: payload.keys,
+            model: payload.model,
+            custom_model: payload.custom_model,
+            custom_header: payload.custom_header,
+        };
+        combineChannel.mutate(combinePayload, {
+            onSuccess: () => {
+                resetForm();
+                setSearchTerm('channel', duplicate.channel_name);
+                setIsOpen(false);
+                toast.success(t('combineSuccess', { name: duplicate.channel_name }));
             },
-            {
-                onSuccess: () => {
-                    setFormData({
-                        name: '',
-                        type: ChannelType.OpenAIChat,
-                        base_urls: [{ url: '', delay: 0 }],
-                        custom_header: [],
-                        channel_proxy: '',
-                        param_override: '',
-                        keys: [{ enabled: true, channel_key: '', remark: '' }],
-                        model: '',
-                        custom_model: '',
-                        auto_sync: false,
-                        auto_group: AutoGroupType.None,
-                        enabled: true,
-                        proxy: false,
-                        match_regex: '',
-                        auto_disable_threshold: '',
-                        auto_disable_retry_hours: '',
-                    });
-                    setIsOpen(false);
-                }
-            });
+            onError: (error) => toast.error(t('combineFailed'), { description: error.message }),
+        });
     };
 
     return (
@@ -115,6 +152,9 @@ export function CreateDialogContent() {
                     submitText={t('submit')}
                     pendingText={t('submitting')}
                     idPrefix="new-channel"
+                    onDuplicateNavigate={handleOpenDuplicate}
+                    onDuplicateCombine={handleCombineDuplicate}
+                    isCombiningDuplicate={combineChannel.isPending}
                 />
             </MorphingDialogDescription>
         </div>

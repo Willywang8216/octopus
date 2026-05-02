@@ -371,7 +371,10 @@
         "create": {
             "title": "创建分组",
             "submit": "创建",
-            "submitting": "创建中..."
+            "submitting": "创建中...",
+            "duplicateOpenHint": "正在显示已有渠道：{name}",
+            "combineSuccess": "已合并到 {name}",
+            "combineFailed": "合并渠道失败"
         },
         "preset": {
             "title": "编码器预设",
@@ -386,6 +389,7 @@
             "empty": "暂无规则"
         },
         "detail": {
+            "duplicateOpenHint": "正在显示已有渠道：{name}",
             "actions": {
                 "edit": "编辑",
                 "cancel": "取消",
@@ -645,6 +649,11 @@
             "dupMatchEndpointAndKey": "相同端点和密钥",
             "dupMatchEndpoint": "相同端点",
             "dupMatchKey": "相同密钥",
+            "duplicateBlocked": "该端点或 API Key 已存在。请先打开或合并到重复渠道。",
+            "openDuplicate": "打开",
+            "combineDuplicate": "合并",
+            "combiningDuplicate": "合并中...",
+            "resolveDuplicateFirst": "先处理重复渠道",
             "autoDisableTitle": "自动禁用",
             "autoDisableHint": "覆盖全局设置。留空使用全局默认值。",
             "autoDisableThreshold": "失败阈值",

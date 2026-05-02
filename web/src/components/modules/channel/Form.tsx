@@ -13,7 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from '@/components/common/Toast';
 import { useTranslations } from 'next-intl';
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { RefreshCw, X, Plus, AlertTriangle } from 'lucide-react';
+import { RefreshCw, X, Plus, AlertTriangle, ExternalLink, Merge } from 'lucide-react';
 
 export interface ChannelKeyFormItem {
     id?: number;
@@ -59,6 +59,9 @@ export interface ChannelFormProps {
     idPrefix?: string;
     /** When editing an existing channel, pass its ID so it's excluded from duplicate checks. */
     excludeChannelId?: number;
+    onDuplicateNavigate?: (duplicate: DuplicateInfo) => void;
+    onDuplicateCombine?: (duplicate: DuplicateInfo) => void;
+    isCombiningDuplicate?: boolean;
 }
 
 import {
@@ -79,6 +82,9 @@ export function ChannelForm({
     cancelText,
     idPrefix = 'channel',
     excludeChannelId = 0,
+    onDuplicateNavigate,
+    onDuplicateCombine,
+    isCombiningDuplicate = false,
 }: ChannelFormProps) {
     const t = useTranslations('channel.form');
 
@@ -264,8 +270,17 @@ export function ChannelForm({
         }
     };
 
+    const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+        if (duplicates.length > 0) {
+            event.preventDefault();
+            toast.error(t('duplicateBlocked'));
+            return;
+        }
+        onSubmit(event);
+    };
+
     return (
-        <form onSubmit={onSubmit} className="space-y-4 px-1">
+        <form onSubmit={handleSubmit} className="space-y-4 px-1">
             {duplicates.length > 0 && (
                 <div className="rounded-xl border border-orange-500/30 bg-orange-500/10 p-3 space-y-2">
                     <div className="flex items-center gap-2 text-sm font-medium text-orange-700 dark:text-orange-400">
@@ -273,12 +288,39 @@ export function ChannelForm({
                         {t('duplicateWarningTitle')}
                     </div>
                     {duplicates.map((d) => (
-                        <div key={d.channel_id} className="flex items-center justify-between text-sm text-orange-700 dark:text-orange-300 pl-6">
-                            <span>
+                        <div key={d.channel_id} className="flex flex-col gap-2 rounded-lg bg-background/40 p-2 text-sm text-orange-700 dark:text-orange-300 sm:flex-row sm:items-center sm:justify-between">
+                            <span className="min-w-0">
                                 <span className="font-medium">{d.channel_name}</span>
                                 <span className="text-xs ml-2 text-orange-600 dark:text-orange-400/70">({dupMatchLabel(d.match_type)})</span>
+                                <span className="text-xs text-muted-foreground ml-2">ID: {d.channel_id}</span>
                             </span>
-                            <span className="text-xs text-muted-foreground">ID: {d.channel_id}</span>
+                            <span className="flex flex-wrap gap-2">
+                                {onDuplicateCombine && (
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="secondary"
+                                        disabled={isCombiningDuplicate}
+                                        onClick={() => onDuplicateCombine(d)}
+                                        className="h-8 rounded-lg gap-1"
+                                    >
+                                        <Merge className="size-3.5" />
+                                        {isCombiningDuplicate ? t('combiningDuplicate') : t('combineDuplicate')}
+                                    </Button>
+                                )}
+                                {onDuplicateNavigate && (
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => onDuplicateNavigate(d)}
+                                        className="h-8 rounded-lg gap-1"
+                                    >
+                                        <ExternalLink className="size-3.5" />
+                                        {t('openDuplicate')}
+                                    </Button>
+                                )}
+                            </span>
                         </div>
                     ))}
                 </div>
@@ -715,10 +757,10 @@ export function ChannelForm({
                 )}
                 <Button
                     type="submit"
-                    disabled={isPending}
+                    disabled={isPending || duplicates.length > 0}
                     className="w-full sm:flex-1 rounded-2xl h-12"
                 >
-                    {isPending ? pendingText : submitText}
+                    {duplicates.length > 0 ? t('resolveDuplicateFirst') : isPending ? pendingText : submitText}
                 </Button>
             </div>
         </form>

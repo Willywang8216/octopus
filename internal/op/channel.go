@@ -881,6 +881,131 @@ func ChannelFindDuplicates(baseUrls []model.BaseUrl, keys []string, excludeID in
 	return result
 }
 
+func ChannelCombineInto(targetID int, baseUrls []model.BaseUrl, keys []model.ChannelKeyAddRequest, modelName string, customModel string, customHeaders []model.CustomHeader, ctx context.Context) (*model.Channel, error) {
+	target, ok := channelCache.Get(targetID)
+	if !ok {
+		return nil, fmt.Errorf("target channel not found")
+	}
+
+	mergedBaseURLs := append([]model.BaseUrl(nil), target.BaseUrls...)
+	seenURLs := make(map[string]struct{}, len(mergedBaseURLs))
+	for _, item := range mergedBaseURLs {
+		if norm := normalizeBaseURL(item.URL); norm != "" {
+			seenURLs[norm] = struct{}{}
+		}
+	}
+	for _, item := range baseUrls {
+		norm := normalizeBaseURL(item.URL)
+		if norm == "" {
+			continue
+		}
+		if _, exists := seenURLs[norm]; exists {
+			continue
+		}
+		seenURLs[norm] = struct{}{}
+		mergedBaseURLs = append(mergedBaseURLs, model.BaseUrl{URL: strings.TrimSpace(item.URL), Delay: item.Delay})
+	}
+
+	seenKeys := make(map[string]struct{}, len(target.Keys))
+	for _, item := range target.Keys {
+		if key := normalizeChannelKey(item.ChannelKey); key != "" {
+			seenKeys[key] = struct{}{}
+		}
+	}
+	keysToAdd := make([]model.ChannelKeyAddRequest, 0, len(keys))
+	for _, item := range keys {
+		key := normalizeChannelKey(item.ChannelKey)
+		if key == "" {
+			continue
+		}
+		if _, exists := seenKeys[key]; exists {
+			continue
+		}
+		seenKeys[key] = struct{}{}
+		keysToAdd = append(keysToAdd, model.ChannelKeyAddRequest{Enabled: item.Enabled, ChannelKey: key, Remark: item.Remark})
+	}
+
+	mergedModel := mergeCSV(target.Model, modelName)
+	mergedCustomModel := mergeCSV(target.CustomModel, customModel)
+	mergedHeaders := mergeHeaders(target.CustomHeader, customHeaders)
+
+	req := &model.ChannelUpdateRequest{ID: targetID}
+	if !baseURLsEqual(target.BaseUrls, mergedBaseURLs) {
+		req.BaseUrls = &mergedBaseURLs
+	}
+	if len(keysToAdd) > 0 {
+		req.KeysToAdd = keysToAdd
+	}
+	if mergedModel != target.Model {
+		req.Model = &mergedModel
+	}
+	if mergedCustomModel != target.CustomModel {
+		req.CustomModel = &mergedCustomModel
+	}
+	if !headersEqual(target.CustomHeader, mergedHeaders) {
+		req.CustomHeader = &mergedHeaders
+	}
+	return ChannelUpdate(req, ctx)
+}
+
+func mergeCSV(left string, right string) string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0)
+	for _, value := range xstrings.SplitTrimCompact(",", left, right) {
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return strings.Join(out, ",")
+}
+
+func mergeHeaders(left []model.CustomHeader, right []model.CustomHeader) []model.CustomHeader {
+	out := append([]model.CustomHeader(nil), left...)
+	seen := make(map[string]struct{}, len(out))
+	for _, item := range out {
+		seen[strings.TrimSpace(item.HeaderKey)+"\x00"+item.HeaderValue] = struct{}{}
+	}
+	for _, item := range right {
+		key := strings.TrimSpace(item.HeaderKey)
+		if key == "" {
+			continue
+		}
+		sig := key + "\x00" + item.HeaderValue
+		if _, exists := seen[sig]; exists {
+			continue
+		}
+		seen[sig] = struct{}{}
+		out = append(out, model.CustomHeader{HeaderKey: key, HeaderValue: item.HeaderValue})
+	}
+	return out
+}
+
+func baseURLsEqual(left []model.BaseUrl, right []model.BaseUrl) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if normalizeBaseURL(left[i].URL) != normalizeBaseURL(right[i].URL) || left[i].Delay != right[i].Delay {
+			return false
+		}
+	}
+	return true
+}
+
+func headersEqual(left []model.CustomHeader, right []model.CustomHeader) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if strings.TrimSpace(left[i].HeaderKey) != strings.TrimSpace(right[i].HeaderKey) || left[i].HeaderValue != right[i].HeaderValue {
+			return false
+		}
+	}
+	return true
+}
+
 // ChannelSetStatusTag updates a channel's status tag in both DB and cache.
 func ChannelSetStatusTag(id int, tag string, ctx context.Context) error {
 	ch, ok := channelCache.Get(id)
