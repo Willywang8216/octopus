@@ -17,6 +17,26 @@ export type ChannelHealthSummary = {
     health: ChannelHealth;
 };
 
+export type ChannelTestProgress = {
+    channel_id: number;
+    channel_name: string;
+    running: boolean;
+    phase: 'waiting' | 'running' | 'saving' | 'done' | 'failed' | string;
+    current_key_id: number;
+    current_key: string;
+    current_model: string;
+    total_keys: number;
+    total_models: number;
+    total_probes: number;
+    completed_probes: number;
+    success_count: number;
+    fail_count: number;
+    started_at: number;
+    updated_at: number;
+    finished_at: number;
+    last_error: string;
+};
+
 export type DuplicateInfo = {
     channel_id: number;
     channel_name: string;
@@ -140,6 +160,7 @@ export type Channel = {
     last_test_at?: number;
     health?: ChannelHealth;
     test_summary?: ChannelHealthSummary | null;
+    test_progress?: ChannelTestProgress | null;
 };
 
 /**
@@ -194,6 +215,7 @@ export type ChannelTestSummary = {
     tested_at: number;
     disabled?: ChannelDisabledTagDetail | null;
     running?: boolean;
+    progress?: ChannelTestProgress | null;
 };
 
 export type ChannelTestAllStatus = {
@@ -221,6 +243,7 @@ type ChannelServer = Omit<Channel, 'base_urls' | 'custom_header' | 'keys' | 'tag
     tags?: string[] | null;
     health?: ChannelHealth;
     test_summary?: ChannelHealthSummary | null;
+    test_progress?: ChannelTestProgress | null;
 };
 
 /**
@@ -307,6 +330,7 @@ export function useChannelList() {
                 tags: item.tags ?? [],
                 health: item.health ?? 'unknown',
                 test_summary: item.test_summary ?? null,
+                test_progress: item.test_progress ?? null,
             }) satisfies Channel,
             formatted: {
                 input_token: formatCount(item.stats.input_token),
@@ -321,7 +345,10 @@ export function useChannelList() {
                 wait_time: formatTime(item.stats.wait_time),
             }
         })) as Array<{ raw: Channel; formatted: StatsMetricsFormatted }>,
-        refetchInterval: 30000,
+        refetchInterval: (query) => {
+            const data = query.state.data as Array<{ raw: Channel; formatted: StatsMetricsFormatted }> | undefined;
+            return data?.some((item) => item.raw.test_progress?.running) ? 2000 : 30000;
+        },
         refetchOnMount: 'always',
     });
 }
@@ -562,6 +589,18 @@ export function useSyncChannel() {
  * const testChannel = useTestChannel();
  * testChannel.mutate({ id: 1 }, { onSuccess: (summary) => console.log(summary) });
  */
+export function useChannelTestProgress(channelId: number, enabled = true) {
+    return useQuery({
+        queryKey: ['channels', 'test-progress', channelId],
+        queryFn: async () => {
+            return apiClient.get<ChannelTestProgress | null>(`/api/v1/channel/test-progress/${channelId}`);
+        },
+        enabled: enabled && channelId > 0,
+        refetchInterval: (query) => query.state.data?.running ? 1500 : 5000,
+        refetchOnMount: 'always',
+    });
+}
+
 export function useTestChannel() {
     const queryClient = useQueryClient();
     return useMutation({
@@ -572,10 +611,12 @@ export function useTestChannel() {
             logger.log(data.running ? '渠道测试已开始:' : '渠道测试完成:', data);
             queryClient.invalidateQueries({ queryKey: ['channels', 'list'] });
             queryClient.invalidateQueries({ queryKey: ['channels', 'test-results', data.channel_id] });
+            queryClient.invalidateQueries({ queryKey: ['channels', 'test-progress', data.channel_id] });
             if (data.running) {
                 window.setTimeout(() => {
                     queryClient.invalidateQueries({ queryKey: ['channels', 'list'] });
                     queryClient.invalidateQueries({ queryKey: ['channels', 'test-results', data.channel_id] });
+                    queryClient.invalidateQueries({ queryKey: ['channels', 'test-progress', data.channel_id] });
                 }, 15000);
             }
         },

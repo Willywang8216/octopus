@@ -58,6 +58,65 @@ type ChannelDisabledTagDetail struct {
 	DisabledAt   int64                       `json:"disabled_at"`
 }
 
+// ChannelTestProgress is an in-memory live view of a channel probe run. It is
+// intentionally not persisted; final per-model results remain in
+// ChannelTestResult. The UI polls this while a manual or scheduled probe is in
+// flight so users can see which key/model is active instead of staring at
+// "no result".
+type ChannelTestProgress struct {
+	ChannelID       int    `json:"channel_id"`
+	ChannelName     string `json:"channel_name"`
+	Running         bool   `json:"running"`
+	Phase           string `json:"phase"`
+	CurrentKeyID    int    `json:"current_key_id"`
+	CurrentKey      string `json:"current_key"`
+	CurrentModel    string `json:"current_model"`
+	TotalKeys       int    `json:"total_keys"`
+	TotalModels     int    `json:"total_models"`
+	TotalProbes     int    `json:"total_probes"`
+	CompletedProbes int    `json:"completed_probes"`
+	SuccessCount    int    `json:"success_count"`
+	FailCount       int    `json:"fail_count"`
+	StartedAt       int64  `json:"started_at"`
+	UpdatedAt       int64  `json:"updated_at"`
+	FinishedAt      int64  `json:"finished_at"`
+	LastError       string `json:"last_error"`
+}
+
+var channelTestProgress sync.Map // channelID -> ChannelTestProgress
+var channelTestProgressMu sync.Mutex
+
+func ChannelTestProgressGet(channelID int) *ChannelTestProgress {
+	channelTestProgressMu.Lock()
+	defer channelTestProgressMu.Unlock()
+	v, ok := channelTestProgress.Load(channelID)
+	if !ok {
+		return nil
+	}
+	progress := v.(ChannelTestProgress)
+	return &progress
+}
+
+func channelTestProgressStore(progress ChannelTestProgress) {
+	channelTestProgressMu.Lock()
+	defer channelTestProgressMu.Unlock()
+	progress.UpdatedAt = time.Now().Unix()
+	channelTestProgress.Store(progress.ChannelID, progress)
+}
+
+func channelTestProgressPatch(channelID int, patch func(*ChannelTestProgress)) {
+	channelTestProgressMu.Lock()
+	defer channelTestProgressMu.Unlock()
+	v, ok := channelTestProgress.Load(channelID)
+	if !ok {
+		return
+	}
+	progress := v.(ChannelTestProgress)
+	patch(&progress)
+	progress.UpdatedAt = time.Now().Unix()
+	channelTestProgress.Store(progress.ChannelID, progress)
+}
+
 // channelTestMu serialises test runs for a single channel so concurrent test
 // requests don't fight over the same channel's keys.
 var channelTestMu sync.Map // channelID -> *sync.Mutex
@@ -76,12 +135,26 @@ func channelTestLock(channelID int) *sync.Mutex {
 // Enabled flag on a key (used by the periodic re-test of auto-disabled
 // keys). When modelFilter is non-empty, only those models are tested.
 func ChannelTestRun(ctx context.Context, channelID int, modelFilter []string, forceAllKeys bool) (*ChannelTestSummary, error) {
+	startedAt := time.Now().Unix()
+	channelTestProgressStore(ChannelTestProgress{
+		ChannelID: channelID,
+		Running:   true,
+		Phase:     "waiting",
+		StartedAt: startedAt,
+	})
+
 	mu := channelTestLock(channelID)
 	mu.Lock()
 	defer mu.Unlock()
 
 	channel, err := op.ChannelGet(channelID, ctx)
 	if err != nil {
+		channelTestProgressPatch(channelID, func(p *ChannelTestProgress) {
+			p.Running = false
+			p.Phase = "failed"
+			p.FinishedAt = time.Now().Unix()
+			p.LastError = err.Error()
+		})
 		return nil, err
 	}
 
@@ -90,7 +163,15 @@ func ChannelTestRun(ctx context.Context, channelID int, modelFilter []string, fo
 		keys = filterKeys(keys, false)
 	}
 	if len(keys) == 0 {
-		return nil, fmt.Errorf("channel has no keys to test")
+		err := fmt.Errorf("channel has no keys to test")
+		channelTestProgressPatch(channelID, func(p *ChannelTestProgress) {
+			p.ChannelName = channel.Name
+			p.Running = false
+			p.Phase = "failed"
+			p.FinishedAt = time.Now().Unix()
+			p.LastError = err.Error()
+		})
+		return nil, err
 	}
 
 	models := channelModels(channel)
@@ -98,12 +179,30 @@ func ChannelTestRun(ctx context.Context, channelID int, modelFilter []string, fo
 		models = intersectModels(models, modelFilter)
 	}
 	if len(models) == 0 {
-		return nil, fmt.Errorf("channel has no models to test")
+		err := fmt.Errorf("channel has no models to test")
+		channelTestProgressPatch(channelID, func(p *ChannelTestProgress) {
+			p.ChannelName = channel.Name
+			p.Running = false
+			p.Phase = "failed"
+			p.FinishedAt = time.Now().Unix()
+			p.LastError = err.Error()
+		})
+		return nil, err
 	}
 
 	timeout := probeTimeout()
 	start := time.Now()
 	totalProbes := len(keys) * len(models)
+	channelTestProgressStore(ChannelTestProgress{
+		ChannelID:   channel.ID,
+		ChannelName: channel.Name,
+		Running:     true,
+		Phase:       "running",
+		TotalKeys:   len(keys),
+		TotalModels: len(models),
+		TotalProbes: totalProbes,
+		StartedAt:   startedAt,
+	})
 
 	// Run probes with bounded concurrency. A small pool keeps total request
 	// load manageable when a channel has many keys × models.
@@ -121,7 +220,22 @@ func ChannelTestRun(ctx context.Context, channelID int, modelFilter []string, fo
 		go func() {
 			defer wg.Done()
 			for j := range jobs {
-				results <- helper.ProbeChannelKeyModel(ctx, channel, j.key, j.mdl, timeout)
+				channelTestProgressPatch(channel.ID, func(p *ChannelTestProgress) {
+					p.Phase = "running"
+					p.CurrentKeyID = j.key.ID
+					p.CurrentKey = previewKeyProbe(j.key.ChannelKey)
+					p.CurrentModel = j.mdl
+				})
+				result := helper.ProbeChannelKeyModel(ctx, channel, j.key, j.mdl, timeout)
+				channelTestProgressPatch(channel.ID, func(p *ChannelTestProgress) {
+					p.CompletedProbes++
+					if result.Success {
+						p.SuccessCount++
+					} else {
+						p.FailCount++
+					}
+				})
+				results <- result
 			}
 		}()
 	}
@@ -159,7 +273,19 @@ func ChannelTestRun(ctx context.Context, channelID int, modelFilter []string, fo
 		TestedAt:    now,
 	}
 
+	channelTestProgressPatch(channel.ID, func(p *ChannelTestProgress) {
+		p.Phase = "saving"
+		p.CurrentKeyID = 0
+		p.CurrentKey = ""
+		p.CurrentModel = ""
+	})
 	if err := persistTestRun(ctx, channel, keys, models, keyResults, now, summary); err != nil {
+		channelTestProgressPatch(channel.ID, func(p *ChannelTestProgress) {
+			p.Running = false
+			p.Phase = "failed"
+			p.FinishedAt = time.Now().Unix()
+			p.LastError = err.Error()
+		})
 		return nil, err
 	}
 	summary.DurationMs = int(time.Since(start).Milliseconds())
@@ -176,6 +302,15 @@ func ChannelTestRun(ctx context.Context, channelID int, modelFilter []string, fo
 			DisabledAt:   fresh.DisabledAt,
 		}
 	}
+
+	channelTestProgressPatch(channel.ID, func(p *ChannelTestProgress) {
+		p.Running = false
+		p.Phase = "done"
+		p.FinishedAt = time.Now().Unix()
+		p.SuccessCount = summary.SuccessCount
+		p.FailCount = summary.FailCount
+		p.CompletedProbes = summary.SuccessCount + summary.FailCount
+	})
 
 	return summary, nil
 }

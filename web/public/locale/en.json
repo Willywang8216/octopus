@@ -357,6 +357,18 @@
             },
             "clearSuccess": "Logs cleared",
             "clearFailed": "Failed to clear logs"
+        },
+        "channelHealth": {
+            "title": "Channel health checks",
+            "hint": "Periodically retests auto-disabled channels and keys. Set interval to 0 to disable scheduled retesting.",
+            "interval": {
+                "label": "Retest interval (minutes)",
+                "placeholder": "0 = disabled"
+            },
+            "timeout": {
+                "label": "Probe timeout (seconds)",
+                "placeholder": "20"
+            }
         }
     },
     "group": {
@@ -537,7 +549,18 @@
             },
             "toastStartedAll": "Started testing {total} channels in the background",
             "toastDoneAllChannels": "Channel testing finished — {completed}/{total} channels checked, {failed} failed",
-            "progressAll": "Testing channels: {completed}/{total}"
+            "progressAll": "Testing channels: {completed}/{total}",
+            "progress": {
+                "running": "Testing in progress",
+                "waiting": "Waiting",
+                "saving": "Saving results",
+                "done": "Testing finished",
+                "failed": "Testing failed",
+                "key": "Current key",
+                "model": "Current model",
+                "passed": "Passed",
+                "failedCount": "Failed"
+            }
         },
         "detail": {
             "test": {

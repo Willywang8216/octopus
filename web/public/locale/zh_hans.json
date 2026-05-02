@@ -357,6 +357,18 @@
             },
             "clearSuccess": "日志已清空",
             "clearFailed": "清空失败"
+        },
+        "channelHealth": {
+            "title": "渠道健康检查",
+            "hint": "定期重新测试自动禁用的渠道和 Key。间隔设为 0 可关闭定时重测。",
+            "interval": {
+                "label": "重测间隔（分钟）",
+                "placeholder": "0 = 关闭"
+            },
+            "timeout": {
+                "label": "单次探测超时（秒）",
+                "placeholder": "20"
+            }
         }
     },
     "group": {
@@ -537,7 +549,18 @@
             },
             "toastStartedAll": "已在后台开始测试 {total} 个渠道",
             "toastDoneAllChannels": "渠道测试完成 — 已检查 {completed}/{total} 个渠道，失败 {failed} 个",
-            "progressAll": "渠道测试中：{completed}/{total}"
+            "progressAll": "渠道测试中：{completed}/{total}",
+            "progress": {
+                "running": "测试进行中",
+                "waiting": "等待中",
+                "saving": "正在保存结果",
+                "done": "测试完成",
+                "failed": "测试失败",
+                "key": "当前 Key",
+                "model": "当前模型",
+                "passed": "成功",
+                "failedCount": "失败"
+            }
         },
         "detail": {
             "test": {

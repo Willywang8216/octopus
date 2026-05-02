@@ -162,6 +162,7 @@ func listChannel(c *gin.Context) {
 		summary.Health = helper.DeriveHealth(results)
 		channels[i].Health = summary.Health
 		channels[i].TestSummary = &summary
+		channels[i].TestProgress = task.ChannelTestProgressGet(channel.ID)
 	}
 	resp.Success(c, channels)
 }
@@ -477,4 +478,19 @@ func getChannelTestResults(c *gin.Context) {
 
 func getChannelTestAllStatus(c *gin.Context) {
 	resp.Success(c, snapshotChannelTestAllStatus())
+}
+
+func getChannelTestProgress(c *gin.Context) {
+	id := c.Param("id")
+	idNum, err := strconv.Atoi(id)
+	if err != nil {
+		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidParam)
+		return
+	}
+	progress := task.ChannelTestProgressGet(idNum)
+	if progress == nil {
+		resp.Success(c, nil)
+		return
+	}
+	resp.Success(c, progress)
 }

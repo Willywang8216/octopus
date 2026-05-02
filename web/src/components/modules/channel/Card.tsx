@@ -43,6 +43,9 @@ export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; st
     const testTotalFailed = channel.keys.reduce((s, k) => s + (k.last_test_failed ?? 0), 0);
     const testTotal = testTotalSuccess + testTotalFailed;
     const hasTestData = testTotal > 0;
+    const progress = channel.test_progress;
+    const progressTotal = progress?.total_probes || 0;
+    const progressCompleted = progress?.completed_probes || 0;
 
     const handleEnableChange = (checked: boolean) => {
         enableChannel.mutate(
@@ -114,6 +117,12 @@ export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; st
                             <Layers className="size-3" />
                             {modelCount}
                         </Badge>
+                        {progress?.running && (
+                            <Badge variant="secondary" className="h-5 px-1.5 text-[10px] gap-1 inline-flex items-center bg-orange-500/15 text-orange-700 dark:text-orange-400">
+                                <MessageSquare className="size-3 animate-pulse" />
+                                {progressCompleted}/{progressTotal || '—'}
+                            </Badge>
+                        )}
                         {hasTestData && (
                             <Badge
                                 variant="secondary"

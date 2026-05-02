@@ -23,6 +23,8 @@ export const SettingKey = {
     CircuitBreakerCooldown: 'circuit_breaker_cooldown',
     CircuitBreakerMaxCooldown: 'circuit_breaker_max_cooldown',
     AutoDisableRetryDays: 'auto_disable_retry_days',
+    HealthCheckInterval: 'health_check_interval',
+    HealthCheckProbeTimeout: 'health_check_probe_timeout',
 } as const;
 
 /**

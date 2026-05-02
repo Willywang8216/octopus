@@ -8,11 +8,11 @@ import (
 	"github.com/bestruirui/octopus/internal/utils/log"
 )
 
-// ChannelHealthCheckTask re-probes any auto-disabled keys / channels so a
-// transient failure (e.g. rate limit, expired free-tier window, briefly
-// missing billing) can recover automatically. Manually-disabled keys and
-// channels are NOT touched — they were turned off by the user and only the
-// user should turn them back on.
+// ChannelHealthCheckTask periodically refreshes channel probe results so the UI
+// does not sit at "no result" forever. Enabled channels are tested normally;
+// auto-disabled channels/keys are also tested with disabled keys included so
+// recoverable failures can flip back to healthy. Manually-disabled channels are
+// not touched unless they were auto-disabled by the system.
 func ChannelHealthCheckTask() {
 	startTime := time.Now()
 	defer func() {
@@ -29,8 +29,6 @@ func ChannelHealthCheckTask() {
 	}
 
 	for _, ch := range channels {
-		// Identify channels that have something to probe. We only care about
-		// auto-disabled artefacts; leave manually-managed state alone.
 		channelAutoDisabled := ch.AutoDisabled
 		hasAutoDisabledKey := false
 		for _, k := range ch.Keys {
@@ -39,14 +37,13 @@ func ChannelHealthCheckTask() {
 				break
 			}
 		}
-		if !channelAutoDisabled && !hasAutoDisabledKey {
+
+		if !ch.Enabled && !channelAutoDisabled && !hasAutoDisabledKey {
 			continue
 		}
 
-		// forceAllKeys=true so the prober re-evaluates auto-disabled keys
-		// even though their `Enabled` flag is currently false. The probe
-		// will flip them back on if they pass.
-		if _, err := ChannelTestRun(ctx, ch.ID, nil, true); err != nil {
+		includeDisabledKeys := channelAutoDisabled || hasAutoDisabledKey
+		if _, err := ChannelTestRun(ctx, ch.ID, nil, includeDisabledKeys); err != nil {
 			log.Debugf("channel %s (id=%d) health check skipped: %v", ch.Name, ch.ID, err)
 			continue
 		}

@@ -11,6 +11,7 @@ import {
     type ChannelTestSummary,
     type ChannelTestKeySummary,
     type ChannelTestModelResult,
+    type ChannelTestProgress,
 } from '@/api/endpoints/channel';
 
 /**
@@ -186,6 +187,53 @@ function ModelResultRow({ result }: { result: ChannelTestModelResult }) {
     );
 }
 
+
+function TestProgressPanel({ progress }: { progress?: ChannelTestProgress | null }) {
+    const t = useTranslations('channel.test.progress');
+    if (!progress || (!progress.running && progress.phase !== 'failed' && progress.phase !== 'done')) return null;
+
+    const total = progress.total_probes || 0;
+    const completed = progress.completed_probes || 0;
+    const pct = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
+    const isWaiting = progress.phase === 'waiting' || (progress.running && !progress.current_model && completed === 0);
+
+    return (
+        <div className="rounded-2xl border bg-card p-3 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                    <Activity className={cn('size-4', progress.running ? 'animate-pulse text-orange-500' : 'text-muted-foreground')} />
+                    {progress.running ? t('running') : progress.phase === 'failed' ? t('failed') : t('done')}
+                </div>
+                <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+                    {completed}/{total || '—'}
+                </Badge>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-muted">
+                <div className="h-full bg-orange-500 transition-all" style={{ width: `${pct}%` }} />
+            </div>
+            <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+                <div>
+                    <span className="font-medium text-card-foreground">{t('key')}:</span>{' '}
+                    {isWaiting ? t('waiting') : progress.current_key || '—'}
+                </div>
+                <div>
+                    <span className="font-medium text-card-foreground">{t('model')}:</span>{' '}
+                    {isWaiting ? t('waiting') : progress.current_model || '—'}
+                </div>
+                <div>
+                    <span className="font-medium text-card-foreground">{t('passed')}:</span> {progress.success_count}
+                </div>
+                <div>
+                    <span className="font-medium text-card-foreground">{t('failedCount')}:</span> {progress.fail_count}
+                </div>
+            </div>
+            {progress.last_error && (
+                <div className="rounded-lg bg-destructive/10 p-2 text-xs text-destructive">{progress.last_error}</div>
+            )}
+        </div>
+    );
+}
+
 /**
  * TestResults renders the complete probe-result section for a single
  * channel. Used inside the channel detail dialog. Pure presentational —
@@ -195,21 +243,23 @@ export function TestResults({
     channel,
     summary,
     isPending,
+    progress,
 }: {
     channel: Channel;
     summary?: ChannelTestSummary | null;
     isPending: boolean;
+    progress?: ChannelTestProgress | null;
 }) {
     const t = useTranslations('channel.test');
 
     if (isPending && !summary) {
-        return (
-            <div className="rounded-2xl border bg-card p-4 text-sm text-muted-foreground text-center">
-                {t('running')}
-            </div>
-        );
+        return <TestProgressPanel progress={progress} />;
     }
     if (!summary || (summary.total_keys === 0 && summary.total_models === 0)) {
+        if (progress?.running || progress?.phase === 'waiting') {
+            return <TestProgressPanel progress={progress} />;
+        }
+
         return (
             <div className="rounded-2xl border border-dashed bg-card/40 p-4 text-sm text-muted-foreground text-center">
                 {t('emptyHint')}
@@ -221,6 +271,7 @@ export function TestResults({
 
     return (
         <div className="space-y-3">
+            <TestProgressPanel progress={progress} />
             {/* Top summary bar */}
             <div className="flex items-center gap-2 flex-wrap">
                 <Badge

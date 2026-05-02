@@ -75,9 +75,14 @@ func DefaultSettings() []Setting {
 func (s *Setting) Validate() error {
 	switch s.Key {
 	case SettingKeyModelInfoUpdateInterval, SettingKeySyncLLMInterval, SettingKeyRelayLogKeepPeriod,
-		SettingKeyHealthCheckInterval, SettingKeyHealthCheckProbeTimeout:
+		SettingKeyHealthCheckProbeTimeout:
 		if !isPositiveIntSettingValue(s.Value) {
 			return fmt.Errorf("%s must be a positive integer", s.Key)
+		}
+		return nil
+	case SettingKeyHealthCheckInterval:
+		if !isNonNegativeIntSettingValue(s.Value) {
+			return fmt.Errorf("%s must be a non-negative integer", s.Key)
 		}
 		return nil
 	case SettingKeyStatsSaveInterval, SettingKeyChannelKeyRecheckInterval, SettingKeyChannelKeySaveInterval,

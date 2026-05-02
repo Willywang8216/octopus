@@ -54,33 +54,34 @@ func (c ChannelTestErrorClass) IsAttentionNeeded() bool {
 }
 
 type Channel struct {
-	ID             int                   `json:"id" gorm:"primaryKey"`
-	Name           string                `json:"name" gorm:"unique;not null"`
-	Type           outbound.OutboundType `json:"type"`
-	Enabled        bool                  `json:"enabled" gorm:"default:true"`
-	BaseUrls       []BaseUrl             `json:"base_urls" gorm:"serializer:json"`
-	Keys           []ChannelKey          `json:"keys" gorm:"foreignKey:ChannelID"`
-	Model          string                `json:"model"`
-	CustomModel    string                `json:"custom_model"`
-	Proxy          bool                  `json:"proxy" gorm:"default:false"`
-	AutoSync       bool                  `json:"auto_sync" gorm:"default:false"`
-	AutoGroup      AutoGroupType         `json:"auto_group" gorm:"default:0"`
-	CustomHeader   []CustomHeader        `json:"custom_header" gorm:"serializer:json"`
-	ParamOverride  *string               `json:"param_override"`
-	ChannelProxy   *string               `json:"channel_proxy"`
-	Stats          *StatsChannel         `json:"stats,omitempty" gorm:"foreignKey:ChannelID"`
-	MatchRegex     *string               `json:"match_regex"`
-	Tags           []ChannelTag          `json:"tags" gorm:"serializer:json"`
-	RetryAfter     int64                 `json:"retry_after" gorm:"default:0"`
-	StatusTag      string                `json:"status_tag" gorm:"type:varchar(32);default:''"`
-	AutoDisabledAt *int64                `json:"auto_disabled_at"`
-	AutoDisabled   bool                  `json:"auto_disabled" gorm:"default:false"`
-	DisabledReason string                `json:"disabled_reason" gorm:"type:varchar(64);default:''"`
-	DisabledClass  ChannelTestErrorClass `json:"disabled_class" gorm:"type:varchar(32);default:''"`
-	DisabledAt     int64                 `json:"disabled_at" gorm:"default:0"`
-	LastTestAt     int64                 `json:"last_test_at" gorm:"default:0"`
-	Health         ChannelHealth         `json:"health" gorm:"-"`
-	TestSummary    *ChannelTestSummary   `json:"test_summary,omitempty" gorm:"-"`
+	ID                    int                   `json:"id" gorm:"primaryKey"`
+	Name                  string                `json:"name" gorm:"unique;not null"`
+	Type                  outbound.OutboundType `json:"type"`
+	Enabled               bool                  `json:"enabled" gorm:"default:true"`
+	BaseUrls              []BaseUrl             `json:"base_urls" gorm:"serializer:json"`
+	Keys                  []ChannelKey          `json:"keys" gorm:"foreignKey:ChannelID"`
+	Model                 string                `json:"model"`
+	CustomModel           string                `json:"custom_model"`
+	Proxy                 bool                  `json:"proxy" gorm:"default:false"`
+	AutoSync              bool                  `json:"auto_sync" gorm:"default:false"`
+	AutoGroup             AutoGroupType         `json:"auto_group" gorm:"default:0"`
+	CustomHeader          []CustomHeader        `json:"custom_header" gorm:"serializer:json"`
+	ParamOverride         *string               `json:"param_override"`
+	ChannelProxy          *string               `json:"channel_proxy"`
+	Stats                 *StatsChannel         `json:"stats,omitempty" gorm:"foreignKey:ChannelID"`
+	MatchRegex            *string               `json:"match_regex"`
+	Tags                  []ChannelTag          `json:"tags" gorm:"serializer:json"`
+	RetryAfter            int64                 `json:"retry_after" gorm:"default:0"`
+	StatusTag             string                `json:"status_tag" gorm:"type:varchar(32);default:''"`
+	AutoDisabledAt        *int64                `json:"auto_disabled_at"`
+	AutoDisabled          bool                  `json:"auto_disabled" gorm:"default:false"`
+	DisabledReason        string                `json:"disabled_reason" gorm:"type:varchar(64);default:''"`
+	DisabledClass         ChannelTestErrorClass `json:"disabled_class" gorm:"type:varchar(32);default:''"`
+	DisabledAt            int64                 `json:"disabled_at" gorm:"default:0"`
+	LastTestAt            int64                 `json:"last_test_at" gorm:"default:0"`
+	Health                ChannelHealth         `json:"health" gorm:"-"`
+	TestSummary           *ChannelTestSummary   `json:"test_summary,omitempty" gorm:"-"`
+	TestProgress          any                   `json:"test_progress,omitempty" gorm:"-"`
 	AutoDisableThreshold  *int                  `json:"auto_disable_threshold"`
 	AutoDisableRetryHours *int                  `json:"auto_disable_retry_hours"`
 }
@@ -113,8 +114,8 @@ type ChannelKey struct {
 	Remark           string                `json:"remark"`
 	FailureCount     int                   `json:"failure_count" gorm:"default:0"`
 	LastError        string                `json:"last_error" gorm:"type:text"`
-	RetryAfter      int64                 `json:"retry_after" gorm:"default:0"`
-	StatusTag       string                `json:"status_tag" gorm:"type:varchar(32);default:''"`
+	RetryAfter       int64                 `json:"retry_after" gorm:"default:0"`
+	StatusTag        string                `json:"status_tag" gorm:"type:varchar(32);default:''"`
 	AutoDisabled     bool                  `json:"auto_disabled" gorm:"default:false"`
 	DisabledReason   string                `json:"disabled_reason" gorm:"type:varchar(64);default:''"`
 	DisabledClass    ChannelTestErrorClass `json:"disabled_class" gorm:"type:varchar(32);default:''"`

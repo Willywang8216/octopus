@@ -357,6 +357,18 @@
             },
             "clearSuccess": "日誌已清空",
             "clearFailed": "清空失敗"
+        },
+        "channelHealth": {
+            "title": "供應源健康檢查",
+            "hint": "定期重新測試自動停用的供應源和 Key。間隔設為 0 可關閉定時重測。",
+            "interval": {
+                "label": "重測間隔（分鐘）",
+                "placeholder": "0 = 關閉"
+            },
+            "timeout": {
+                "label": "單次探測逾時（秒）",
+                "placeholder": "20"
+            }
         }
     },
     "group": {
@@ -537,7 +549,18 @@
             },
             "toastStartedAll": "已在背景開始測試 {total} 個供應源",
             "toastDoneAllChannels": "供應源測試完成 — 已檢查 {completed}/{total} 個供應源，失敗 {failed} 個",
-            "progressAll": "供應源測試中：{completed}/{total}"
+            "progressAll": "供應源測試中：{completed}/{total}",
+            "progress": {
+                "running": "測試進行中",
+                "waiting": "等待中",
+                "saving": "正在儲存結果",
+                "done": "測試完成",
+                "failed": "測試失敗",
+                "key": "目前 Key",
+                "model": "目前模型",
+                "passed": "成功",
+                "failedCount": "失敗"
+            }
         },
         "detail": {
             "test": {

@@ -18,6 +18,7 @@ import {
     useDeleteChannel,
     useTestChannel,
     useChannelTestResults,
+    useChannelTestProgress,
     type Channel,
     type DuplicateInfo,
     type UpdateChannelRequest,
@@ -46,6 +47,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
     const deleteChannel = useDeleteChannel();
     const testChannel = useTestChannel();
     const cachedTestResults = useChannelTestResults(channel.id);
+    const liveTestProgress = useChannelTestProgress(channel.id);
     const setSearchTerm = useSearchStore((state) => state.setSearchTerm);
     const [isEditing, setIsEditing] = useState(false);
     const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
