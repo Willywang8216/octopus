@@ -346,8 +346,12 @@ export function useChannelList() {
             }
         })) as Array<{ raw: Channel; formatted: StatsMetricsFormatted }>,
         refetchInterval: (query) => {
-            const data = query.state.data as Array<{ raw: Channel; formatted: StatsMetricsFormatted }> | undefined;
-            return data?.some((item) => item.raw.test_progress?.running) ? 2000 : 30000;
+            const data = query.state.data as Array<ChannelServer | { raw?: Channel }> | undefined;
+            const hasRunningProbe = data?.some((item) => {
+                const channel = 'raw' in item && item.raw ? item.raw : item as ChannelServer;
+                return channel.test_progress?.running === true;
+            });
+            return hasRunningProbe ? 2000 : 30000;
         },
         refetchOnMount: 'always',
     });
