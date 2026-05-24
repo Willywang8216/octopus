@@ -12,11 +12,13 @@ import {
     Key,
     PlayCircle,
     Loader2,
+    StopCircle,
 } from 'lucide-react';
 import {
     useUpdateChannel,
     useDeleteChannel,
     useTestChannel,
+    useCancelChannelTest,
     useChannelTestResults,
     useChannelTestProgress,
     type Channel,
@@ -47,6 +49,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
     const updateChannel = useUpdateChannel();
     const deleteChannel = useDeleteChannel();
     const testChannel = useTestChannel();
+    const cancelTest = useCancelChannelTest();
     const cachedTestResults = useChannelTestResults(channel.id);
     const liveTestProgress = useChannelTestProgress(channel.id);
     const setSearchTerm = useSearchStore((state) => state.setSearchTerm);
@@ -417,36 +420,53 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                             <Key className="size-3.5" />
                                             {t('sections.keys')}
                                         </h4>
-                                        <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="sm"
-                                            disabled={testChannel.isPending || !!effectiveTestProgress?.running}
-                                            onClick={() => {
-                                                testChannel.mutate(
-                                                    { id: channel.id, include_disabled_keys: true },
-                                                    {
-                                                        onSuccess: (summary) => {
-                                                            if (summary.running) {
-                                                                toast.success(tTest('running'));
-                                                                return;
-                                                            }
-                                                            toast.success(
-                                                                tTest('toastDone', {
-                                                                    pass: summary.success_count,
-                                                                    total: summary.total_probes,
-                                                                })
-                                                            );
-                                                        },
-                                                        onError: (e) => toast.error(e.message),
-                                                    }
-                                                );
-                                            }}
-                                            className="h-7 rounded-lg gap-1 text-xs"
-                                        >
-                                            <PlayCircle className={cn('size-3.5', testChannel.isPending && 'animate-pulse')} />
-                                            {testChannel.isPending || effectiveTestProgress?.running ? t('test.testing') : t('test.testAll')}
-                                        </Button>
+                                        {effectiveTestProgress?.running ? (
+                                            <Button
+                                                type="button"
+                                                variant="destructive"
+                                                size="sm"
+                                                onClick={() => cancelTest.mutate(
+                                                    { channel_id: channel.id },
+                                                    { onSuccess: () => toast.success(tTest('toastCancelled')) }
+                                                )}
+                                                disabled={cancelTest.isPending}
+                                                className="h-7 rounded-lg gap-1 text-xs"
+                                            >
+                                                <StopCircle className="size-3.5" />
+                                                {tTest('stopButton')}
+                                            </Button>
+                                        ) : (
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                disabled={testChannel.isPending}
+                                                onClick={() => {
+                                                    testChannel.mutate(
+                                                        { id: channel.id, include_disabled_keys: true },
+                                                        {
+                                                            onSuccess: (summary) => {
+                                                                if (summary.running) {
+                                                                    toast.success(tTest('running'));
+                                                                    return;
+                                                                }
+                                                                toast.success(
+                                                                    tTest('toastDone', {
+                                                                        pass: summary.success_count,
+                                                                        total: summary.total_probes,
+                                                                    })
+                                                                );
+                                                            },
+                                                            onError: (e) => toast.error(e.message),
+                                                        }
+                                                    );
+                                                }}
+                                                className="h-7 rounded-lg gap-1 text-xs"
+                                            >
+                                                <PlayCircle className={cn('size-3.5', testChannel.isPending && 'animate-pulse')} />
+                                                {testChannel.isPending ? t('test.testing') : t('test.testAll')}
+                                            </Button>
+                                        )}
                                     </div>
                                     <div className="rounded-2xl border bg-card overflow-hidden">
                                         {channel.keys?.map((key) => {
@@ -559,45 +579,62 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                             <Activity className="size-3.5" />
                                             {tTest('sectionTitle')}
                                         </h4>
-                                        <Button
-                                            type="button"
-                                            size="sm"
-                                            variant="secondary"
-                                            disabled={testChannel.isPending || !!effectiveTestProgress?.running}
-                                            onClick={() => {
-                                                testChannel.mutate(
-                                                    { id: channel.id, include_disabled_keys: true },
-                                                    {
-                                                        onSuccess: (s) => {
-                                                            if (s.running) {
-                                                                toast.success(tTest('running'));
-                                                                return;
-                                                            }
-                                                            toast.success(
-                                                                tTest('toastDone', {
-                                                                    pass: s.success_count,
-                                                                    total: s.total_probes,
-                                                                })
-                                                            );
-                                                        },
-                                                        onError: (err) => toast.error(err.message),
-                                                    }
-                                                );
-                                            }}
-                                            className="h-7 rounded-xl"
-                                        >
-                                            {testChannel.isPending || effectiveTestProgress?.running ? (
-                                                <>
-                                                    <Loader2 className="size-3.5 animate-spin" />
-                                                    {tTest('running')}
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <PlayCircle className="size-3.5" />
-                                                    {tTest('runButton')}
-                                                </>
-                                            )}
-                                        </Button>
+                                        {effectiveTestProgress?.running ? (
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="destructive"
+                                                onClick={() => cancelTest.mutate(
+                                                    { channel_id: channel.id },
+                                                    { onSuccess: () => toast.success(tTest('toastCancelled')) }
+                                                )}
+                                                disabled={cancelTest.isPending}
+                                                className="h-7 rounded-xl"
+                                            >
+                                                <StopCircle className="size-3.5" />
+                                                {tTest('stopButton')}
+                                            </Button>
+                                        ) : (
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="secondary"
+                                                disabled={testChannel.isPending}
+                                                onClick={() => {
+                                                    testChannel.mutate(
+                                                        { id: channel.id, include_disabled_keys: true },
+                                                        {
+                                                            onSuccess: (s) => {
+                                                                if (s.running) {
+                                                                    toast.success(tTest('running'));
+                                                                    return;
+                                                                }
+                                                                toast.success(
+                                                                    tTest('toastDone', {
+                                                                        pass: s.success_count,
+                                                                        total: s.total_probes,
+                                                                    })
+                                                                );
+                                                            },
+                                                            onError: (err) => toast.error(err.message),
+                                                        }
+                                                    );
+                                                }}
+                                                className="h-7 rounded-xl"
+                                            >
+                                                {testChannel.isPending ? (
+                                                    <>
+                                                        <Loader2 className="size-3.5 animate-spin" />
+                                                        {tTest('running')}
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <PlayCircle className="size-3.5" />
+                                                        {tTest('runButton')}
+                                                    </>
+                                                )}
+                                            </Button>
+                                        )}
                                     </div>
                                     <TestResults
                                         channel={channel}

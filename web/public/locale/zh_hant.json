@@ -507,6 +507,20 @@
             "dead": "已死",
             "unknown": "未知"
         },
+        "overview": {
+            "title": "供應源概覽",
+            "name": "名稱",
+            "type": "類型",
+            "keys": "金鑰",
+            "models": "模型",
+            "testResult": "測試結果",
+            "error": "錯誤",
+            "status": "狀態",
+            "action": "操作",
+            "stopAll": "停止全部",
+            "stopChannel": "停止",
+            "noChannels": "暫無供應源"
+        },
         "card": {
             "requestCount": "請求次數",
             "totalCost": "總成本",
@@ -549,6 +563,9 @@
             },
             "toastStartedAll": "已在背景開始測試 {total} 個供應源",
             "toastDoneAllChannels": "供應源測試完成 — 已檢查 {completed}/{total} 個供應源，失敗 {failed} 個",
+            "stopButton": "停止測試",
+            "toastCancelled": "測試已取消",
+            "toastCancelledAll": "所有測試已取消",
             "progressAll": "供應源測試中：{completed}/{total}",
             "progress": {
                 "running": "測試進行中",

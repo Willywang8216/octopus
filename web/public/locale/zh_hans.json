@@ -507,6 +507,20 @@
             "dead": "已死",
             "unknown": "未知"
         },
+        "overview": {
+            "title": "渠道概览",
+            "name": "名称",
+            "type": "类型",
+            "keys": "密钥",
+            "models": "模型",
+            "testResult": "测试结果",
+            "error": "错误",
+            "status": "状态",
+            "action": "操作",
+            "stopAll": "停止全部",
+            "stopChannel": "停止",
+            "noChannels": "暂无渠道"
+        },
         "card": {
             "requestCount": "请求次数",
             "totalCost": "总成本",
@@ -549,6 +563,9 @@
             },
             "toastStartedAll": "已在后台开始测试 {total} 个渠道",
             "toastDoneAllChannels": "渠道测试完成 — 已检查 {completed}/{total} 个渠道，失败 {failed} 个",
+            "stopButton": "停止测试",
+            "toastCancelled": "测试已取消",
+            "toastCancelledAll": "所有测试已取消",
             "progressAll": "渠道测试中：{completed}/{total}",
             "progress": {
                 "running": "测试进行中",

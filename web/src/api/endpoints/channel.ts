@@ -220,6 +220,7 @@ export type ChannelTestSummary = {
 
 export type ChannelTestAllStatus = {
     running: boolean;
+    cancelled?: boolean;
     started_at: number;
     finished_at: number;
     total_channels: number;
@@ -666,6 +667,26 @@ export function useChannelTestAllStatus(enabled = true) {
         queryFn: async () => apiClient.get<ChannelTestAllStatus>('/api/v1/channel/test-all-status'),
         enabled,
         refetchInterval: enabled ? 5000 : false,
+    });
+}
+
+/**
+ * 取消渠道测试 Hook
+ */
+export function useCancelChannelTest() {
+    const queryClient = useQueryClient();
+    return useMutation({
+        mutationFn: async (data?: { channel_id?: number }) => {
+            return apiClient.post<{ cancelled: boolean; channel_id?: number }>(
+                '/api/v1/channel/cancel-test',
+                data ?? {}
+            );
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['channels', 'list'] });
+            queryClient.invalidateQueries({ queryKey: ['channels', 'test-all-status'] });
+            queryClient.invalidateQueries({ queryKey: ['channels', 'test-progress'] });
+        },
     });
 }
 
