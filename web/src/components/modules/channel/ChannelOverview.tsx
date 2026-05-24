@@ -6,7 +6,7 @@ import { Activity, ChevronDown, ChevronUp, Key, Layers, StopCircle } from 'lucid
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { type Channel, type ChannelTestProgress, type ChannelType, useCancelChannelTest, useChannelTestAllStatus } from '@/api/endpoints/channel';
+import { type Channel, useCancelChannelTest, useChannelTestAllStatus } from '@/api/endpoints/channel';
 import { HealthPill } from './HealthPill';
 import { AttentionTag } from './TestResults';
 import { toast } from '@/components/common/Toast';
