@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -41,6 +42,9 @@ type RelayMetrics struct {
 	// 统计指标
 	ActualModel string
 	Stats       model.StatsMetrics
+
+	// 参数覆盖
+	ParamOverride string
 }
 
 func NewRelayMetrics(apiKeyID int, requestModel string, req *transformerModel.InternalLLMRequest) *RelayMetrics {
@@ -189,7 +193,19 @@ func (m *RelayMetrics) saveLog(ctx context.Context, err error, duration time.Dur
 	// 设置请求内容
 	if m.InternalRequest != nil {
 		if reqJSON, jsonErr := json.Marshal(m.InternalRequest); jsonErr == nil {
-			relayLog.RequestContent = truncateForLog(string(reqJSON), maxBytes)
+			finalContent := string(reqJSON)
+			if m.ParamOverride != "" {
+				var reqMap map[string]any
+				var override map[string]any
+				if json.Unmarshal(reqJSON, &reqMap) == nil &&
+					json.Unmarshal([]byte(m.ParamOverride), &override) == nil {
+					maps.Copy(reqMap, override)
+					if merged, err := json.Marshal(reqMap); err == nil {
+						finalContent = string(merged)
+					}
+				}
+			}
+			relayLog.RequestContent = truncateForLog(finalContent, maxBytes)
 		}
 	}
 
