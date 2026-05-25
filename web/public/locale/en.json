@@ -567,6 +567,7 @@
             "stopButton": "Stop Testing",
             "toastCancelled": "Test cancelled",
             "toastCancelledAll": "All tests cancelled",
+            "rawLog": "Raw Log",
             "progressAll": "Testing channels: {completed}/{total}",
             "progress": {
                 "running": "Testing in progress",

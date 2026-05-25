@@ -137,9 +137,10 @@ type ChannelTestResult struct {
 	Success    bool                  `json:"success"`
 	StatusCode int                   `json:"status_code"`
 	LatencyMs  int                   `json:"latency_ms"`
-	ErrorClass ChannelTestErrorClass `json:"error_class" gorm:"type:varchar(32);default:''"`
-	ErrorMsg   string                `json:"error_msg" gorm:"type:text"`
-	TestedAt   int64                 `json:"tested_at"`
+	ErrorClass  ChannelTestErrorClass `json:"error_class" gorm:"type:varchar(32);default:''"`
+	ErrorMsg    string                `json:"error_msg" gorm:"type:text"`
+	ResponseLog string                `json:"response_log" gorm:"type:text"`
+	TestedAt    int64                 `json:"tested_at"`
 }
 
 // ChannelUpdateRequest 渠道更新请求 - 仅包含变更的数据

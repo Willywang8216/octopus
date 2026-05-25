@@ -425,22 +425,20 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                             <Key className="size-3.5" />
                                             {t('sections.keys')}
                                         </h4>
-                                        {effectiveTestProgress?.running && (
-                                            <Button
-                                                type="button"
-                                                variant="destructive"
-                                                size="sm"
-                                                onClick={() => cancelTest.mutate(
-                                                    { channel_id: channel.id },
-                                                    { onSuccess: () => toast.success(tTest('toastCancelled')) }
-                                                )}
-                                                disabled={cancelTest.isPending}
-                                                className="h-7 rounded-lg gap-1 text-xs"
-                                            >
-                                                <StopCircle className="size-3.5" />
-                                                {tTest('stopButton')}
-                                            </Button>
-                                        )}
+                                        <Button
+                                            type="button"
+                                            variant="destructive"
+                                            size="sm"
+                                            onClick={() => cancelTest.mutate(
+                                                { channel_id: channel.id },
+                                                { onSuccess: () => toast.success(tTest('toastCancelled')) }
+                                            )}
+                                            disabled={!effectiveTestProgress?.running || cancelTest.isPending}
+                                            className="h-7 rounded-lg gap-1 text-xs"
+                                        >
+                                            <StopCircle className="size-3.5" />
+                                            {tTest('stopButton')}
+                                        </Button>
                                     </div>
                                     <div className="rounded-2xl border bg-card overflow-hidden">
                                         {channel.keys?.map((key) => {
@@ -553,7 +551,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                             <Activity className="size-3.5" />
                                             {tTest('sectionTitle')}
                                         </h4>
-                                        {effectiveTestProgress?.running ? (
+                                        <div className="flex items-center gap-1.5">
                                             <Button
                                                 type="button"
                                                 size="sm"
@@ -562,18 +560,17 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                                     { channel_id: channel.id },
                                                     { onSuccess: () => toast.success(tTest('toastCancelled')) }
                                                 )}
-                                                disabled={cancelTest.isPending}
+                                                disabled={!effectiveTestProgress?.running || cancelTest.isPending}
                                                 className="h-7 rounded-xl"
                                             >
                                                 <StopCircle className="size-3.5" />
                                                 {tTest('stopButton')}
                                             </Button>
-                                        ) : (
                                             <Button
                                                 type="button"
                                                 size="sm"
                                                 variant="secondary"
-                                                disabled={testChannel.isPending}
+                                                disabled={testChannel.isPending || !!effectiveTestProgress?.running}
                                                 onClick={() => {
                                                     testChannel.mutate(
                                                         { id: channel.id, include_disabled_keys: true },
@@ -608,7 +605,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                                     </>
                                                 )}
                                             </Button>
-                                        )}
+                                        </div>
                                     </div>
                                     <TestResults
                                         channel={channel}

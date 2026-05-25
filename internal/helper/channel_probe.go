@@ -25,8 +25,9 @@ type ChannelProbeResult struct {
 	Success    bool                        `json:"success"`
 	StatusCode int                         `json:"status_code"`
 	LatencyMs  int                         `json:"latency_ms"`
-	ErrorClass model.ChannelTestErrorClass `json:"error_class"`
-	ErrorMsg   string                      `json:"error_msg"`
+	ErrorClass  model.ChannelTestErrorClass `json:"error_class"`
+	ErrorMsg    string                      `json:"error_msg"`
+	ResponseLog string                      `json:"response_log"`
 }
 
 // ProbeChannelKeyModel sends a minimal chat (or embedding) request to the
@@ -109,10 +110,9 @@ func ProbeChannelKeyModel(ctx context.Context, channel *model.Channel, key model
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4*1024))
 	bodyStr := string(body)
 
+	res.ResponseLog = trimMessage(bodyStr, 4096)
+
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		// 2xx is "the upstream accepted the request and started replying" —
-		// for a probe this is sufficient evidence that the (key, model)
-		// works.
 		res.Success = true
 		return res
 	}

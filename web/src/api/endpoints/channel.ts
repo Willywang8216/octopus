@@ -177,6 +177,7 @@ export type ChannelTestModelResult = {
     latency_ms: number;
     error_class: ChannelTestErrorClass;
     error_msg: string;
+    response_log: string;
     tested_at: number;
 };
 
