@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
     Trash2,
     CheckCircle2,
@@ -55,25 +55,28 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
     const setSearchTerm = useSearchStore((state) => state.setSearchTerm);
     const [isEditing, setIsEditing] = useState(false);
     const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
-    const fallbackProgress: ChannelTestProgress | null = testChannel.data?.running ? {
-        channel_id: channel.id,
-        channel_name: channel.name,
-        running: true,
-        phase: 'waiting',
-        current_key_id: 0,
-        current_key: '',
-        current_model: '',
-        total_keys: testChannel.data.total_keys,
-        total_models: testChannel.data.total_models,
-        total_probes: testChannel.data.total_keys * testChannel.data.total_models,
-        completed_probes: 0,
-        success_count: 0,
-        fail_count: 0,
-        started_at: testChannel.data.tested_at || Math.floor(Date.now() / 1000),
-        updated_at: Math.floor(Date.now() / 1000),
-        finished_at: 0,
-        last_error: '',
-    } : null;
+    const fallbackProgress: ChannelTestProgress | null = useMemo(() => {
+        if (!testChannel.data?.running) return null;
+        return {
+            channel_id: channel.id,
+            channel_name: channel.name,
+            running: true,
+            phase: 'waiting',
+            current_key_id: 0,
+            current_key: '',
+            current_model: '',
+            total_keys: testChannel.data.total_keys,
+            total_models: testChannel.data.total_models,
+            total_probes: testChannel.data.total_keys * testChannel.data.total_models,
+            completed_probes: 0,
+            success_count: 0,
+            fail_count: 0,
+            started_at: testChannel.data.tested_at || 0,
+            updated_at: 0,
+            finished_at: 0,
+            last_error: '',
+        };
+    }, [testChannel.data, channel.id, channel.name]);
     const effectiveTestProgress = liveTestProgress.data ?? channel.test_progress ?? fallbackProgress;
     const [formData, setFormData] = useState<ChannelFormData>({
         name: channel.name,

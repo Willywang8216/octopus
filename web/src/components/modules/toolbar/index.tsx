@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowUpAZ, Clock3, LayoutGrid, List, Loader2, Plus, Search, SlidersHorizontal, Stethoscope, StopCircle, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -386,16 +386,14 @@ function TestAllChannelsButton() {
     const statusQuery = useChannelTestAllStatus(true);
     const status = statusQuery.data;
     const isBackgroundRunning = Boolean(status?.running);
-    const [sawBackgroundRun, setSawBackgroundRun] = useState(false);
     const isPending = testAll.isPending || isBackgroundRunning;
+    const prevRunningRef = useRef<boolean>(false);
 
     useEffect(() => {
-        if (status?.running) {
-            setSawBackgroundRun(true);
-            return;
-        }
-        if (sawBackgroundRun && status && status.finished_at > 0) {
-            setSawBackgroundRun(false);
+        const wasRunning = prevRunningRef.current;
+        prevRunningRef.current = Boolean(status?.running);
+
+        if (wasRunning && status && !status.running && status.finished_at > 0) {
             queryClient.invalidateQueries({ queryKey: ['channels', 'list'] });
             queryClient.invalidateQueries({ queryKey: ['channels', 'test-results'] });
             if (!status.cancelled) {
@@ -406,7 +404,7 @@ function TestAllChannelsButton() {
                 }));
             }
         }
-    }, [queryClient, sawBackgroundRun, status, tTest]);
+    }, [queryClient, status, tTest]);
 
     if (isBackgroundRunning) {
         return (
