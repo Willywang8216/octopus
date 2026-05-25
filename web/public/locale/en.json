@@ -526,6 +526,7 @@
             "totalCost": "Total Cost",
             "enabledShort": "enabled",
             "autoDisabledShort": "auto-disabled",
+            "skipTest": "Skip Testing",
             "toast": {
                 "enabled": "Channel enabled",
                 "disabled": "Channel disabled"
@@ -533,7 +534,7 @@
         },
         "test": {
             "sectionTitle": "Test Results",
-            "runButton": "Test models",
+            "runButton": "Test Channel",
             "running": "Testing...",
             "passing": "passing",
             "keys": "keys",
@@ -677,6 +678,7 @@
             "typeGemini": "Gemini",
             "typeVolcengine": "Volcengine",
             "autoSync": "Auto Sync",
+            "skipTest": "Skip Testing",
             "autoGroup": "Auto Group",
             "autoGroupNone": "None",
             "autoGroupFuzzy": "Fuzzy",

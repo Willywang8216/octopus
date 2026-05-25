@@ -82,6 +82,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
         name: channel.name,
         type: channel.type,
         enabled: channel.enabled,
+        skip_test: channel.skip_test ?? false,
         base_urls: channel.base_urls?.length ? channel.base_urls : [{ url: '', delay: 0 }],
         custom_header: channel.custom_header ?? [],
         channel_proxy: channel.channel_proxy ?? '',
@@ -127,6 +128,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
         if (formData.name !== channel.name) req.name = formData.name;
         if (formData.type !== channel.type) req.type = formData.type;
         if (formData.enabled !== channel.enabled) req.enabled = formData.enabled;
+        if ((formData.skip_test ?? false) !== (channel.skip_test ?? false)) req.skip_test = formData.skip_test;
         if (!baseUrlsEqual(formData.base_urls, channel.base_urls)) {
             req.base_urls = (formData.base_urls ?? []).filter((u) => u.url.trim()).map((u) => ({
                 url: u.url.trim(),
@@ -423,7 +425,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                             <Key className="size-3.5" />
                                             {t('sections.keys')}
                                         </h4>
-                                        {effectiveTestProgress?.running ? (
+                                        {effectiveTestProgress?.running && (
                                             <Button
                                                 type="button"
                                                 variant="destructive"
@@ -437,37 +439,6 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                             >
                                                 <StopCircle className="size-3.5" />
                                                 {tTest('stopButton')}
-                                            </Button>
-                                        ) : (
-                                            <Button
-                                                type="button"
-                                                variant="ghost"
-                                                size="sm"
-                                                disabled={testChannel.isPending}
-                                                onClick={() => {
-                                                    testChannel.mutate(
-                                                        { id: channel.id, include_disabled_keys: true },
-                                                        {
-                                                            onSuccess: (summary) => {
-                                                                if (summary.running) {
-                                                                    toast.success(tTest('running'));
-                                                                    return;
-                                                                }
-                                                                toast.success(
-                                                                    tTest('toastDone', {
-                                                                        pass: summary.success_count,
-                                                                        total: summary.total_probes,
-                                                                    })
-                                                                );
-                                                            },
-                                                            onError: (e) => toast.error(e.message),
-                                                        }
-                                                    );
-                                                }}
-                                                className="h-7 rounded-lg gap-1 text-xs"
-                                            >
-                                                <PlayCircle className={cn('size-3.5', testChannel.isPending && 'animate-pulse')} />
-                                                {testChannel.isPending ? t('test.testing') : t('test.testAll')}
                                             </Button>
                                         )}
                                     </div>

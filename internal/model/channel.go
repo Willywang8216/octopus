@@ -75,6 +75,7 @@ type Channel struct {
 	StatusTag             string                `json:"status_tag" gorm:"type:varchar(32);default:''"`
 	AutoDisabledAt        *int64                `json:"auto_disabled_at"`
 	AutoDisabled          bool                  `json:"auto_disabled" gorm:"default:false"`
+	SkipTest              bool                  `json:"skip_test" gorm:"default:false"`
 	DisabledReason        string                `json:"disabled_reason" gorm:"type:varchar(64);default:''"`
 	DisabledClass         ChannelTestErrorClass `json:"disabled_class" gorm:"type:varchar(32);default:''"`
 	DisabledAt            int64                 `json:"disabled_at" gorm:"default:0"`
@@ -147,6 +148,7 @@ type ChannelUpdateRequest struct {
 	Name                  *string                `json:"name,omitempty"`
 	Type                  *outbound.OutboundType `json:"type,omitempty"`
 	Enabled               *bool                  `json:"enabled,omitempty"`
+	SkipTest              *bool                  `json:"skip_test,omitempty"`
 	Tags                  *[]ChannelTag          `json:"tags,omitempty"`
 	RetryAfter            *int64                 `json:"retry_after,omitempty"`
 	BaseUrls              *[]BaseUrl             `json:"base_urls,omitempty"`

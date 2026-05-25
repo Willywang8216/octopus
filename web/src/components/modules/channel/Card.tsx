@@ -4,7 +4,7 @@ import {
     MorphingDialogContainer,
     MorphingDialogContent,
 } from '@/components/ui/morphing-dialog';
-import { CheckCircle2, DollarSign, Key, Layers, MessageSquare, XCircle } from 'lucide-react';
+import { CheckCircle2, DollarSign, Key, Layers, MessageSquare, ShieldOff, XCircle } from 'lucide-react';
 import { type StatsMetricsFormatted } from '@/api/endpoints/stats';
 import { type Channel, useEnableChannel } from '@/api/endpoints/channel';
 import { CardContent } from './CardContent';
@@ -145,6 +145,16 @@ export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; st
                                 cls={channel.disabled_class}
                                 reason={channel.disabled_reason}
                             />
+                        )}
+                        {channel.skip_test && (
+                            <Tooltip side="top" sideOffset={6} align="center">
+                                <TooltipTrigger asChild>
+                                    <Badge variant="secondary" className="h-5 px-1.5 text-[10px] gap-1 inline-flex items-center bg-muted text-muted-foreground">
+                                        <ShieldOff className="size-3" />
+                                    </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>{t('skipTest')}</TooltipContent>
+                            </Tooltip>
                         )}
                     </div>
 

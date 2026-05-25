@@ -39,6 +39,7 @@ export interface ChannelFormData {
     model: string;
     custom_model: string;
     enabled: boolean;
+    skip_test: boolean;
     proxy: boolean;
     auto_sync: boolean;
     auto_group: AutoGroupType;
@@ -725,6 +726,13 @@ export function ChannelForm({
                         onCheckedChange={(checked) => onFormDataChange({ ...formData, enabled: checked })}
                     />
                     <span className="text-sm font-medium text-card-foreground">{t('enabled')}</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                    <Switch
+                        checked={formData.skip_test}
+                        onCheckedChange={(checked) => onFormDataChange({ ...formData, skip_test: checked })}
+                    />
+                    <span className="text-sm text-card-foreground">{t('skipTest')}</span>
                 </label>
                 <div className="flex items-center gap-6">
                     <label className="flex items-center gap-2 cursor-pointer">
