@@ -612,7 +612,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                     </div>
                                     <TestResults
                                         channel={channel}
-                                        summary={testChannel.data ?? cachedTestResults.data ?? null}
+                                        summary={cachedTestResults.data ?? testChannel.data ?? null}
                                         isPending={testChannel.isPending || cachedTestResults.isLoading}
                                         progress={effectiveTestProgress}
                                     />
