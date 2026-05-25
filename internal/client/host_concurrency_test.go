@@ -43,7 +43,7 @@ func TestHostConcurrencyLimitRoundTripper(t *testing.T) {
 	// Limit this host to 5 concurrent in-flight requests.
 	t.Setenv(hostConcurrencyEnvKey, host+"=5")
 
-	base, err := clonedDefaultTransport()
+	base, err := tunedTransport()
 	if err != nil {
 		t.Fatalf("clone transport: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestHostConcurrencyLimitFailFast(t *testing.T) {
 	t.Setenv(hostConcurrencyEnvKey, host+"=5")
 	t.Setenv(hostConcurrencyFailfastEnvKey, host)
 
-	base, err := clonedDefaultTransport()
+	base, err := tunedTransport()
 	if err != nil {
 		t.Fatalf("clone transport: %v", err)
 	}
