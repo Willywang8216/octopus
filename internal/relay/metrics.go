@@ -192,28 +192,20 @@ func (m *RelayMetrics) saveLog(ctx context.Context, err error, duration time.Dur
 
 	// 设置请求内容
 	if m.InternalRequest != nil {
-		reqJSON, jsonErr := json.Marshal(m.InternalRequest)
-		if jsonErr != nil {
-			relayLog.RequestContent = truncateForLog(string(reqJSON), maxBytes)
-		} else if m.ParamOverride == "" {
-			relayLog.RequestContent = truncateForLog(string(reqJSON), maxBytes)
-		} else {
-			var reqMap map[string]any
-			if err := json.Unmarshal(reqJSON, &reqMap); err != nil {
-				relayLog.RequestContent = truncateForLog(string(reqJSON), maxBytes)
-			} else {
+		if reqJSON, jsonErr := json.Marshal(m.InternalRequest); jsonErr == nil {
+			finalContent := string(reqJSON)
+			if m.ParamOverride != "" {
+				var reqMap map[string]any
 				var override map[string]any
-				if err := json.Unmarshal([]byte(m.ParamOverride), &override); err != nil {
-					relayLog.RequestContent = truncateForLog(string(reqJSON), maxBytes)
-				} else {
+				if json.Unmarshal(reqJSON, &reqMap) == nil &&
+					json.Unmarshal([]byte(m.ParamOverride), &override) == nil {
 					maps.Copy(reqMap, override)
-					if finalJSON, err := json.Marshal(reqMap); err != nil {
-						relayLog.RequestContent = truncateForLog(string(reqJSON), maxBytes)
-					} else {
-						relayLog.RequestContent = truncateForLog(string(finalJSON), maxBytes)
+					if merged, err := json.Marshal(reqMap); err == nil {
+						finalContent = string(merged)
 					}
 				}
 			}
+			relayLog.RequestContent = truncateForLog(finalContent, maxBytes)
 		}
 	}
 

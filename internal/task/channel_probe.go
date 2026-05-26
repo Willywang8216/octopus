@@ -258,9 +258,10 @@ func ChannelTestRun(ctx context.Context, channelID int, modelFilter []string, fo
 			Success:    r.Success,
 			StatusCode: r.StatusCode,
 			LatencyMs:  r.LatencyMs,
-			ErrorClass: r.ErrorClass,
-			ErrorMsg:   r.ErrorMsg,
-			TestedAt:   now,
+			ErrorClass:  r.ErrorClass,
+			ErrorMsg:    r.ErrorMsg,
+			ResponseLog: r.ResponseLog,
+			TestedAt:    now,
 		})
 	}
 

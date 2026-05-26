@@ -430,6 +430,10 @@ func ChannelUpdate(req *model.ChannelUpdateRequest, ctx context.Context) (*model
 		selectFields = append(selectFields, "auto_disable_retry_hours")
 		updates.AutoDisableRetryHours = req.AutoDisableRetryHours
 	}
+	if req.SkipTest != nil {
+		selectFields = append(selectFields, "skip_test")
+		updates.SkipTest = *req.SkipTest
+	}
 
 	// 只有当有字段需要更新时才执行 UPDATE
 	if len(selectFields) > 0 {

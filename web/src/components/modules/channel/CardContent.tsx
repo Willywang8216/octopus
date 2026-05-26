@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
     Trash2,
     CheckCircle2,
@@ -13,6 +13,7 @@ import {
     PlayCircle,
     Loader2,
     StopCircle,
+    ShieldOff,
 } from 'lucide-react';
 import {
     useUpdateChannel,
@@ -36,6 +37,7 @@ import { Tabs, TabsContents, TabsContent } from '@/components/animate-ui/primiti
 import { type StatsMetricsFormatted } from '@/api/endpoints/stats';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { ChannelForm, type ChannelFormData } from './Form';
 import { formatMoney } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
@@ -55,30 +57,34 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
     const setSearchTerm = useSearchStore((state) => state.setSearchTerm);
     const [isEditing, setIsEditing] = useState(false);
     const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
-    const fallbackProgress: ChannelTestProgress | null = testChannel.data?.running ? {
-        channel_id: channel.id,
-        channel_name: channel.name,
-        running: true,
-        phase: 'waiting',
-        current_key_id: 0,
-        current_key: '',
-        current_model: '',
-        total_keys: testChannel.data.total_keys,
-        total_models: testChannel.data.total_models,
-        total_probes: testChannel.data.total_keys * testChannel.data.total_models,
-        completed_probes: 0,
-        success_count: 0,
-        fail_count: 0,
-        started_at: testChannel.data.tested_at || Math.floor(Date.now() / 1000),
-        updated_at: Math.floor(Date.now() / 1000),
-        finished_at: 0,
-        last_error: '',
-    } : null;
+    const fallbackProgress: ChannelTestProgress | null = useMemo(() => {
+        if (!testChannel.data?.running) return null;
+        return {
+            channel_id: channel.id,
+            channel_name: channel.name,
+            running: true,
+            phase: 'waiting',
+            current_key_id: 0,
+            current_key: '',
+            current_model: '',
+            total_keys: testChannel.data.total_keys,
+            total_models: testChannel.data.total_models,
+            total_probes: testChannel.data.total_keys * testChannel.data.total_models,
+            completed_probes: 0,
+            success_count: 0,
+            fail_count: 0,
+            started_at: testChannel.data.tested_at || 0,
+            updated_at: 0,
+            finished_at: 0,
+            last_error: '',
+        };
+    }, [testChannel.data, channel.id, channel.name]);
     const effectiveTestProgress = liveTestProgress.data ?? channel.test_progress ?? fallbackProgress;
     const [formData, setFormData] = useState<ChannelFormData>({
         name: channel.name,
         type: channel.type,
         enabled: channel.enabled,
+        skip_test: channel.skip_test ?? false,
         base_urls: channel.base_urls?.length ? channel.base_urls : [{ url: '', delay: 0 }],
         custom_header: channel.custom_header ?? [],
         channel_proxy: channel.channel_proxy ?? '',
@@ -108,6 +114,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
     });
     const t = useTranslations('channel.detail');
     const tTest = useTranslations('channel.test');
+    const tForm = useTranslations('channel.form');
 
     const currentView = isEditing ? 'editing' : 'viewing';
 
@@ -124,6 +131,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
         if (formData.name !== channel.name) req.name = formData.name;
         if (formData.type !== channel.type) req.type = formData.type;
         if (formData.enabled !== channel.enabled) req.enabled = formData.enabled;
+        if ((formData.skip_test ?? false) !== (channel.skip_test ?? false)) req.skip_test = formData.skip_test;
         if (!baseUrlsEqual(formData.base_urls, channel.base_urls)) {
             req.base_urls = (formData.base_urls ?? []).filter((u) => u.url.trim()).map((u) => ({
                 url: u.url.trim(),
@@ -413,6 +421,27 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                     </div>
                                 </section>
 
+                                {/* Skip testing toggle */}
+                                <div className="flex items-center justify-between rounded-2xl border bg-card p-3 sm:p-4 transition-colors hover:bg-accent/5">
+                                    <div className="flex items-center gap-2">
+                                        <ShieldOff className="size-4 text-muted-foreground" />
+                                        <span className="text-sm text-card-foreground">{tForm('skipTest')}</span>
+                                    </div>
+                                    <Switch
+                                        checked={channel.skip_test ?? false}
+                                        onCheckedChange={(checked) => {
+                                            updateChannel.mutate(
+                                                { id: channel.id, skip_test: checked },
+                                                {
+                                                    onSuccess: () => toast.success(checked ? tForm('skipTest') + ' ✓' : tForm('skipTest') + ' ✗'),
+                                                    onError: (err) => toast.error(err.message),
+                                                }
+                                            );
+                                        }}
+                                        disabled={updateChannel.isPending}
+                                    />
+                                </div>
+
                                 {/* Keys */}
                                 <section className="space-y-3">
                                     <div className="flex items-center justify-between">
@@ -420,53 +449,20 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                             <Key className="size-3.5" />
                                             {t('sections.keys')}
                                         </h4>
-                                        {effectiveTestProgress?.running ? (
-                                            <Button
-                                                type="button"
-                                                variant="destructive"
-                                                size="sm"
-                                                onClick={() => cancelTest.mutate(
-                                                    { channel_id: channel.id },
-                                                    { onSuccess: () => toast.success(tTest('toastCancelled')) }
-                                                )}
-                                                disabled={cancelTest.isPending}
-                                                className="h-7 rounded-lg gap-1 text-xs"
-                                            >
-                                                <StopCircle className="size-3.5" />
-                                                {tTest('stopButton')}
-                                            </Button>
-                                        ) : (
-                                            <Button
-                                                type="button"
-                                                variant="ghost"
-                                                size="sm"
-                                                disabled={testChannel.isPending}
-                                                onClick={() => {
-                                                    testChannel.mutate(
-                                                        { id: channel.id, include_disabled_keys: true },
-                                                        {
-                                                            onSuccess: (summary) => {
-                                                                if (summary.running) {
-                                                                    toast.success(tTest('running'));
-                                                                    return;
-                                                                }
-                                                                toast.success(
-                                                                    tTest('toastDone', {
-                                                                        pass: summary.success_count,
-                                                                        total: summary.total_probes,
-                                                                    })
-                                                                );
-                                                            },
-                                                            onError: (e) => toast.error(e.message),
-                                                        }
-                                                    );
-                                                }}
-                                                className="h-7 rounded-lg gap-1 text-xs"
-                                            >
-                                                <PlayCircle className={cn('size-3.5', testChannel.isPending && 'animate-pulse')} />
-                                                {testChannel.isPending ? t('test.testing') : t('test.testAll')}
-                                            </Button>
-                                        )}
+                                        <Button
+                                            type="button"
+                                            variant="destructive"
+                                            size="sm"
+                                            onClick={() => cancelTest.mutate(
+                                                { channel_id: channel.id },
+                                                { onSuccess: () => toast.success(tTest('toastCancelled')) }
+                                            )}
+                                            disabled={!effectiveTestProgress?.running || cancelTest.isPending}
+                                            className="h-7 rounded-lg gap-1 text-xs"
+                                        >
+                                            <StopCircle className="size-3.5" />
+                                            {tTest('stopButton')}
+                                        </Button>
                                     </div>
                                     <div className="rounded-2xl border bg-card overflow-hidden">
                                         {channel.keys?.map((key) => {
@@ -579,7 +575,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                             <Activity className="size-3.5" />
                                             {tTest('sectionTitle')}
                                         </h4>
-                                        {effectiveTestProgress?.running ? (
+                                        <div className="flex items-center gap-1.5">
                                             <Button
                                                 type="button"
                                                 size="sm"
@@ -588,18 +584,17 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                                     { channel_id: channel.id },
                                                     { onSuccess: () => toast.success(tTest('toastCancelled')) }
                                                 )}
-                                                disabled={cancelTest.isPending}
+                                                disabled={!effectiveTestProgress?.running || cancelTest.isPending}
                                                 className="h-7 rounded-xl"
                                             >
                                                 <StopCircle className="size-3.5" />
                                                 {tTest('stopButton')}
                                             </Button>
-                                        ) : (
                                             <Button
                                                 type="button"
                                                 size="sm"
                                                 variant="secondary"
-                                                disabled={testChannel.isPending}
+                                                disabled={testChannel.isPending || !!effectiveTestProgress?.running}
                                                 onClick={() => {
                                                     testChannel.mutate(
                                                         { id: channel.id, include_disabled_keys: true },
@@ -634,11 +629,11 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                                     </>
                                                 )}
                                             </Button>
-                                        )}
+                                        </div>
                                     </div>
                                     <TestResults
                                         channel={channel}
-                                        summary={testChannel.data ?? cachedTestResults.data ?? null}
+                                        summary={cachedTestResults.data ?? testChannel.data ?? null}
                                         isPending={testChannel.isPending || cachedTestResults.isLoading}
                                         progress={effectiveTestProgress}
                                     />

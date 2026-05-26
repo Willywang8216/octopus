@@ -75,6 +75,7 @@ type Channel struct {
 	StatusTag             string                `json:"status_tag" gorm:"type:varchar(32);default:''"`
 	AutoDisabledAt        *int64                `json:"auto_disabled_at"`
 	AutoDisabled          bool                  `json:"auto_disabled" gorm:"default:false"`
+	SkipTest              bool                  `json:"skip_test" gorm:"default:false"`
 	DisabledReason        string                `json:"disabled_reason" gorm:"type:varchar(64);default:''"`
 	DisabledClass         ChannelTestErrorClass `json:"disabled_class" gorm:"type:varchar(32);default:''"`
 	DisabledAt            int64                 `json:"disabled_at" gorm:"default:0"`
@@ -136,9 +137,10 @@ type ChannelTestResult struct {
 	Success    bool                  `json:"success"`
 	StatusCode int                   `json:"status_code"`
 	LatencyMs  int                   `json:"latency_ms"`
-	ErrorClass ChannelTestErrorClass `json:"error_class" gorm:"type:varchar(32);default:''"`
-	ErrorMsg   string                `json:"error_msg" gorm:"type:text"`
-	TestedAt   int64                 `json:"tested_at"`
+	ErrorClass  ChannelTestErrorClass `json:"error_class" gorm:"type:varchar(32);default:''"`
+	ErrorMsg    string                `json:"error_msg" gorm:"type:text"`
+	ResponseLog string                `json:"response_log" gorm:"type:text"`
+	TestedAt    int64                 `json:"tested_at"`
 }
 
 // ChannelUpdateRequest 渠道更新请求 - 仅包含变更的数据
@@ -147,6 +149,7 @@ type ChannelUpdateRequest struct {
 	Name                  *string                `json:"name,omitempty"`
 	Type                  *outbound.OutboundType `json:"type,omitempty"`
 	Enabled               *bool                  `json:"enabled,omitempty"`
+	SkipTest              *bool                  `json:"skip_test,omitempty"`
 	Tags                  *[]ChannelTag          `json:"tags,omitempty"`
 	RetryAfter            *int64                 `json:"retry_after,omitempty"`
 	BaseUrls              *[]BaseUrl             `json:"base_urls,omitempty"`

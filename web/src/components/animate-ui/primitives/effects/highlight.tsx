@@ -390,7 +390,8 @@ function HighlightItem<T extends React.ElementType>({
   transition,
   disabled = false,
   activeClassName,
-  exitDelay,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  exitDelay: _exitDelay,
   asChild = false,
   forceUpdateBounds,
   ...props
@@ -410,7 +411,8 @@ function HighlightItem<T extends React.ElementType>({
     transition: contextTransition,
     id: contextId,
     disabled: contextDisabled,
-    exitDelay: contextExitDelay,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    exitDelay: _contextExitDelay,
     forceUpdateBounds: contextForceUpdateBounds,
     setActiveClassName,
   } = useHighlight();

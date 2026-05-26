@@ -154,6 +154,7 @@ export type Channel = {
     match_regex?: string | null;
     stats: StatsChannel;
     auto_disabled?: boolean;
+    skip_test?: boolean;
     disabled_reason?: string;
     disabled_class?: ChannelTestErrorClass;
     disabled_at?: number;
@@ -176,6 +177,7 @@ export type ChannelTestModelResult = {
     latency_ms: number;
     error_class: ChannelTestErrorClass;
     error_msg: string;
+    response_log: string;
     tested_at: number;
 };
 
@@ -277,6 +279,7 @@ export type UpdateChannelRequest = {
     name?: string;
     type?: ChannelType;
     enabled?: boolean;
+    skip_test?: boolean;
     base_urls?: BaseUrl[];
     model?: string;
     custom_model?: string;

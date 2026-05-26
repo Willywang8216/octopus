@@ -526,6 +526,7 @@
             "totalCost": "總成本",
             "enabledShort": "啟用",
             "autoDisabledShort": "自動停用",
+            "skipTest": "跳過測試",
             "toast": {
                 "enabled": "供應源已啟用",
                 "disabled": "供應源已停用"
@@ -533,7 +534,7 @@
         },
         "test": {
             "sectionTitle": "測試結果",
-            "runButton": "測試模型",
+            "runButton": "測試渠道",
             "running": "測試中...",
             "passing": "通過",
             "keys": "Key",
@@ -566,6 +567,7 @@
             "stopButton": "停止測試",
             "toastCancelled": "測試已取消",
             "toastCancelledAll": "所有測試已取消",
+            "rawLog": "原始日誌",
             "progressAll": "供應源測試中：{completed}/{total}",
             "progress": {
                 "running": "測試進行中",
@@ -677,6 +679,7 @@
             "typeGemini": "Gemini",
             "typeVolcengine": "火山引擎",
             "autoSync": "自動同步",
+            "skipTest": "跳過測試",
             "autoGroup": "自動分組",
             "autoGroupNone": "不自動分組",
             "autoGroupFuzzy": "模糊比對",

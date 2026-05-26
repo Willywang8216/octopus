@@ -377,6 +377,10 @@ func testChannel(c *gin.Context) {
 		resp.Error(c, http.StatusNotFound, err.Error())
 		return
 	}
+	if channel.SkipTest {
+		resp.Error(c, http.StatusBadRequest, "channel is marked to skip testing")
+		return
+	}
 	modelText := strings.Trim(strings.TrimSpace(channel.Model+","+channel.CustomModel), ",")
 	totalModels := 0
 	if modelText != "" {
@@ -430,6 +434,14 @@ func testAllChannels(c *gin.Context) {
 	summaries := make([]*task.ChannelTestSummary, 0, len(channels))
 	skipped := make([]map[string]any, 0)
 	for _, ch := range channels {
+		if ch.SkipTest {
+			skipped = append(skipped, map[string]any{
+				"channel_id":   ch.ID,
+				"channel_name": ch.Name,
+				"reason":       "skip_test enabled",
+			})
+			continue
+		}
 		if !request.IncludeDisabledChannels && !ch.Enabled {
 			skipped = append(skipped, map[string]any{
 				"channel_id":   ch.ID,

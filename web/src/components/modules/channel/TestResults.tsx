@@ -150,13 +150,13 @@ function KeyResultsRow({ keySummary, progress }: { keySummary: ChannelTestKeySum
 function ModelResultRow({ result }: { result: ChannelTestModelResult }) {
     const t = useTranslations('channel.test');
     const [open, setOpen] = useState(false);
-    const expandable = !result.success && !!result.error_msg;
+    const hasLog = !!(result.response_log || result.error_msg);
     return (
         <div>
             <button
                 type="button"
-                onClick={() => (expandable ? setOpen((v) => !v) : undefined)}
-                disabled={!expandable}
+                onClick={() => (hasLog ? setOpen((v) => !v) : undefined)}
+                disabled={!hasLog}
                 className="w-full flex items-center gap-2 p-2.5 text-left disabled:cursor-default"
             >
                 {result.success ? (
@@ -184,11 +184,29 @@ function ModelResultRow({ result }: { result: ChannelTestModelResult }) {
                         {t(`errorClass.${result.error_class || 'other'}` as never)}
                     </Badge>
                 )}
+                {hasLog && (
+                    <ChevronDown className={cn('size-3 text-muted-foreground shrink-0 transition-transform', open && 'rotate-180')} />
+                )}
             </button>
-            {open && expandable && (
-                <pre className="mx-2 mb-2 max-h-40 overflow-auto rounded-md bg-muted/40 p-2 text-[10px] font-mono text-muted-foreground whitespace-pre-wrap break-all">
-                    {result.error_msg}
-                </pre>
+            {open && hasLog && (
+                <div className="mx-2 mb-2 space-y-2">
+                    {!result.success && result.error_msg && (
+                        <div>
+                            <div className="px-2 py-1 text-[10px] font-medium text-destructive">{t('rawLog')}</div>
+                            <pre className="max-h-40 overflow-auto rounded-md bg-muted/40 p-2 text-[10px] font-mono text-muted-foreground whitespace-pre-wrap break-all">
+                                {result.error_msg}
+                            </pre>
+                        </div>
+                    )}
+                    {result.response_log && (
+                        <div>
+                            <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground">{t('rawLog')}</div>
+                            <pre className="max-h-40 overflow-auto rounded-md bg-muted/40 p-2 text-[10px] font-mono text-muted-foreground whitespace-pre-wrap break-all">
+                                {result.response_log}
+                            </pre>
+                        </div>
+                    )}
+                </div>
             )}
         </div>
     );
