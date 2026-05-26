@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
+ARG GIT_VERSION=dev
+
 FROM node:24-alpine AS frontend
 WORKDIR /src/web
 
@@ -13,8 +15,8 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm rebuild
 
 COPY web/ ./
-ARG NEXT_PUBLIC_APP_VERSION=local
-RUN env NEXT_PUBLIC_APP_VERSION=${NEXT_PUBLIC_APP_VERSION} pnpm run build
+ARG GIT_VERSION
+RUN env NEXT_PUBLIC_APP_VERSION=${GIT_VERSION} pnpm run build
 
 FROM golang:1.24.4-alpine AS backend
 WORKDIR /src
@@ -28,9 +30,10 @@ COPY . ./
 RUN rm -rf static/out && mkdir -p static/out
 COPY --from=frontend /src/web/out ./static/out
 
+ARG GIT_VERSION
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -tags=jsoniter -ldflags="-s -w" -o /out/octopus .
+    CGO_ENABLED=0 go build -tags=jsoniter -ldflags="-s -w -X 'github.com/bestruirui/octopus/internal/conf.Version=${GIT_VERSION}' -X 'github.com/bestruirui/octopus/internal/conf.Commit=docker'" -o /out/octopus .
 
 FROM alpine:3.22
 

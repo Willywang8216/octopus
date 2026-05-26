@@ -13,6 +13,7 @@ import {
     PlayCircle,
     Loader2,
     StopCircle,
+    ShieldOff,
 } from 'lucide-react';
 import {
     useUpdateChannel,
@@ -36,6 +37,7 @@ import { Tabs, TabsContents, TabsContent } from '@/components/animate-ui/primiti
 import { type StatsMetricsFormatted } from '@/api/endpoints/stats';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { ChannelForm, type ChannelFormData } from './Form';
 import { formatMoney } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
@@ -112,6 +114,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
     });
     const t = useTranslations('channel.detail');
     const tTest = useTranslations('channel.test');
+    const tForm = useTranslations('channel.form');
 
     const currentView = isEditing ? 'editing' : 'viewing';
 
@@ -417,6 +420,27 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                         )}
                                     </div>
                                 </section>
+
+                                {/* Skip testing toggle */}
+                                <div className="flex items-center justify-between rounded-2xl border bg-card p-3 sm:p-4 transition-colors hover:bg-accent/5">
+                                    <div className="flex items-center gap-2">
+                                        <ShieldOff className="size-4 text-muted-foreground" />
+                                        <span className="text-sm text-card-foreground">{tForm('skipTest')}</span>
+                                    </div>
+                                    <Switch
+                                        checked={channel.skip_test ?? false}
+                                        onCheckedChange={(checked) => {
+                                            updateChannel.mutate(
+                                                { id: channel.id, skip_test: checked },
+                                                {
+                                                    onSuccess: () => toast.success(checked ? tForm('skipTest') + ' ✓' : tForm('skipTest') + ' ✗'),
+                                                    onError: (err) => toast.error(err.message),
+                                                }
+                                            );
+                                        }}
+                                        disabled={updateChannel.isPending}
+                                    />
+                                </div>
 
                                 {/* Keys */}
                                 <section className="space-y-3">

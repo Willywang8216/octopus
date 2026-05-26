@@ -1,6 +1,7 @@
 package helper
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -113,6 +114,25 @@ func ProbeChannelKeyModel(ctx context.Context, channel *model.Channel, key model
 	res.ResponseLog = trimMessage(bodyStr, 4096)
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		// Verify the model actually produced output, not just a 200 OK.
+		bufResp := &http.Response{
+			StatusCode: resp.StatusCode,
+			Header:     resp.Header,
+			Body:       io.NopCloser(bytes.NewReader(body)),
+		}
+		internal, terr := out.TransformResponse(probeCtx, bufResp)
+		if terr != nil {
+			res.Success = false
+			res.ErrorClass = model.ChannelTestErrorTransform
+			res.ErrorMsg = trimMessage(fmt.Sprintf("model returned 200 but response parse failed: %v", terr), 512)
+			return res
+		}
+		if internal == nil || (!internal.IsChatResponse() && !internal.IsEmbeddingResponse() && !internal.IsRerankResponse()) {
+			res.Success = false
+			res.ErrorClass = model.ChannelTestErrorTransform
+			res.ErrorMsg = "model returned 200 but no valid content (empty choices/data)"
+			return res
+		}
 		res.Success = true
 		return res
 	}
