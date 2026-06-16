@@ -20,12 +20,15 @@ type Group struct {
 }
 
 type GroupItem struct {
-	ID        int    `json:"id" gorm:"primaryKey"`
-	GroupID   int    `json:"group_id" gorm:"not null;index:idx_group_channel_model,unique"` // 创建时不携带此字段,更新时需要
-	ChannelID int    `json:"channel_id" gorm:"not null;index:idx_group_channel_model,unique"`
-	ModelName string `json:"model_name" gorm:"not null;index:idx_group_channel_model,unique"`
-	Priority  int    `json:"priority"`
-	Weight    int    `json:"weight"`
+	ID            int    `json:"id" gorm:"primaryKey"`
+	GroupID       int    `json:"group_id" gorm:"not null;index:idx_group_channel_model,unique"` // 创建时不携带此字段,更新时需要
+	ChannelID     int    `json:"channel_id" gorm:"not null;index:idx_group_channel_model,unique"`
+	ModelName     string `json:"model_name" gorm:"not null;index:idx_group_channel_model,unique"`
+	Priority      int    `json:"priority"`
+	Weight        int    `json:"weight"`
+	Enabled       bool   `json:"enabled" gorm:"default:true"`
+	DisabledAt    int64  `json:"disabled_at"`
+	DisabledReason string `json:"disabled_reason"`
 }
 
 // GroupUpdateRequest 分组更新请求 - 仅包含变更的数据
@@ -58,4 +61,8 @@ type GroupItemUpdateRequest struct {
 type GroupIDAndLLMName struct {
 	ChannelID int
 	ModelName string
+}
+
+type GroupPresetRequest struct {
+	ModelName string `json:"model_name" binding:"required"`
 }

@@ -10,10 +10,11 @@ import (
 // Iterator 统一的负载均衡迭代器
 // 内部编排：策略排序 + 粘性优先 + 决策追踪
 type Iterator struct {
-	candidates []model.GroupItem
-	index      int
-	stickyIdx  int    // 粘性通道在 candidates 中的位置，-1 表示无
-	modelName  string // 请求模型名（用于熔断检查）
+	candidates  []model.GroupItem
+	index       int
+	stickyIdx   int    // 粘性通道在 candidates 中的位置，-1 表示无
+	stickyKeyID int    // 粘性会话上次使用的 channel key id，0 表示无偏好
+	modelName   string // 请求模型名（用于熔断检查）
 
 	// 内嵌追踪
 	attempts []model.ChannelAttempt
@@ -27,18 +28,23 @@ func NewIterator(group model.Group, apiKeyID int, requestModel string) *Iterator
 	candidates := b.Candidates(group.Items)
 
 	stickyIdx := -1
+	stickyKeyID := 0
 	if group.SessionKeepTime > 0 {
 		stickyTTL := time.Duration(group.SessionKeepTime) * time.Second
 		if sticky := GetSticky(apiKeyID, requestModel, stickyTTL); sticky != nil {
+			// 粘性以 (channel, key) 作为目标：iterator 在候选层只能按 channel
+			// 匹配（GroupItem 不携带 key id），但会把 KeyID 一并传给上层，
+			// 由 relay 在选 key 时优先沿用，避免多 key 渠道在会话期内被
+			// 切换到不同凭据。
 			for i, item := range candidates {
 				if item.ChannelID == sticky.ChannelID {
 					if i > 0 {
-						// 将粘性通道移到最前面
 						stickyItem := candidates[i]
 						copy(candidates[1:i+1], candidates[0:i])
 						candidates[0] = stickyItem
 					}
 					stickyIdx = 0
+					stickyKeyID = sticky.ChannelKeyID
 					break
 				}
 			}
@@ -46,10 +52,11 @@ func NewIterator(group model.Group, apiKeyID int, requestModel string) *Iterator
 	}
 
 	return &Iterator{
-		candidates: candidates,
-		index:      -1,
-		stickyIdx:  stickyIdx,
-		modelName:  requestModel,
+		candidates:  candidates,
+		index:       -1,
+		stickyIdx:   stickyIdx,
+		stickyKeyID: stickyKeyID,
+		modelName:   requestModel,
 	}
 }
 
@@ -67,6 +74,14 @@ func (it *Iterator) Item() model.GroupItem {
 // IsSticky 当前候选是否为粘性通道
 func (it *Iterator) IsSticky() bool {
 	return it.stickyIdx >= 0 && it.index == it.stickyIdx
+}
+
+// StickyKeyID 当前粘性候选偏好的 channel key id；非粘性或无偏好返回 0。
+func (it *Iterator) StickyKeyID() int {
+	if !it.IsSticky() {
+		return 0
+	}
+	return it.stickyKeyID
 }
 
 // Len 返回候选列表长度

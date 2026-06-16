@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { ArrowUpAZ, Clock3, LayoutGrid, List, Plus, Search, SlidersHorizontal, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { ArrowUpAZ, Clock3, LayoutGrid, List, Loader2, Plus, Search, SlidersHorizontal, Stethoscope, StopCircle, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
     MorphingDialog,
@@ -16,18 +16,24 @@ import { useNavStore, type NavItem } from '@/components/modules/navbar';
 import { CreateDialogContent as ChannelCreateContent } from '@/components/modules/channel/Create';
 import { CreateDialogContent as GroupCreateContent } from '@/components/modules/group/Create';
 import { CreateDialogContent as ModelCreateContent } from '@/components/modules/model/Create';
+import { useCancelChannelTest, useChannelTestAllStatus, useTestAllChannels } from '@/api/endpoints/channel';
+import { toast } from '@/components/common/Toast';
 import { useTranslations } from 'next-intl';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSearchStore } from './search-store';
 import {
     useToolbarViewOptionsStore,
     TOOLBAR_PAGES,
     type ToolbarPage,
     type ChannelFilter,
+    type ChannelHealthFilter,
     type GroupFilter,
     type ModelFilter,
     type ToolbarSortField,
     type ToolbarSortOrder,
 } from './view-options-store';
+
+const CHANNEL_HEALTH_FILTER_OPTIONS: ChannelHealthFilter[] = ['all', 'alive', 'flaky', 'zombie', 'dead', 'unknown'];
 
 const CHANNEL_FILTER_OPTIONS: ChannelFilter[] = ['all', 'enabled', 'disabled'];
 const GROUP_FILTER_OPTIONS: GroupFilter[] = ['all', 'with-members', 'empty'];
@@ -75,9 +81,11 @@ export function Toolbar() {
     const setSortConfig = useToolbarViewOptionsStore((s) => s.setSortConfig);
     const setSortOrder = useToolbarViewOptionsStore((s) => s.setSortOrder);
     const channelFilter = useToolbarViewOptionsStore((s) => s.channelFilter);
+    const channelHealthFilter = useToolbarViewOptionsStore((s) => s.channelHealthFilter);
     const groupFilter = useToolbarViewOptionsStore((s) => s.groupFilter);
     const modelFilter = useToolbarViewOptionsStore((s) => s.modelFilter);
     const setChannelFilter = useToolbarViewOptionsStore((s) => s.setChannelFilter);
+    const setChannelHealthFilter = useToolbarViewOptionsStore((s) => s.setChannelHealthFilter);
     const setGroupFilter = useToolbarViewOptionsStore((s) => s.setGroupFilter);
     const setModelFilter = useToolbarViewOptionsStore((s) => s.setModelFilter);
     const [expandedSearchItem, setExpandedSearchItem] = useState<ToolbarPage | null>(null);
@@ -317,11 +325,37 @@ export function Toolbar() {
                                     ))}
                                 </div>
                             </div>
+
+                            {toolbarItem === 'channel' && (
+                                <div className="grid gap-2">
+                                    <p className="text-xs font-medium text-muted-foreground">{t('popover.filter.health.title')}</p>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        {CHANNEL_HEALTH_FILTER_OPTIONS.map((value) => (
+                                            <button
+                                                key={value}
+                                                type="button"
+                                                onClick={() => setChannelHealthFilter(value)}
+                                                className={cn(
+                                                    'h-8 rounded-lg border text-xs font-medium inline-flex items-center justify-center gap-1.5 transition-colors',
+                                                    channelHealthFilter === value
+                                                        ? 'border-primary/30 bg-primary text-primary-foreground'
+                                                        : 'border-border bg-muted/20 text-foreground hover:bg-muted/30'
+                                                )}
+                                            >
+                                                {t(`popover.filter.health.${value}`)}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </PopoverContent>
                 </Popover>
 
+
                 {/* 创建按钮 */}
+                {toolbarItem === 'channel' && <TestAllChannelsButton />}
+
                 <MorphingDialog>
                     <MorphingDialogTrigger className={buttonVariants({ variant: "ghost", size: "icon", className: "rounded-xl transition-none hover:bg-transparent text-muted-foreground hover:text-foreground" })}>
                         <Plus className="size-4 transition-colors duration-300" />
@@ -335,6 +369,114 @@ export function Toolbar() {
                 </MorphingDialog>
             </motion.div>
         </AnimatePresence>
+    );
+}
+
+/**
+ * TestAllChannelsButton triggers a global probe across every enabled
+ * channel. Lives in the toolbar so it's always one click away on the
+ * channel page.
+ */
+function TestAllChannelsButton() {
+    const t = useTranslations('toolbar');
+    const tTest = useTranslations('channel.test');
+    const queryClient = useQueryClient();
+    const testAll = useTestAllChannels();
+    const cancelTest = useCancelChannelTest();
+    const statusQuery = useChannelTestAllStatus(true);
+    const status = statusQuery.data;
+    const isBackgroundRunning = Boolean(status?.running);
+    const isPending = testAll.isPending || isBackgroundRunning;
+    const prevRunningRef = useRef<boolean>(false);
+
+    useEffect(() => {
+        const wasRunning = prevRunningRef.current;
+        prevRunningRef.current = Boolean(status?.running);
+
+        if (wasRunning && status && !status.running && status.finished_at > 0) {
+            queryClient.invalidateQueries({ queryKey: ['channels', 'list'] });
+            queryClient.invalidateQueries({ queryKey: ['channels', 'test-results'] });
+            if (!status.cancelled) {
+                toast.success(tTest('toastDoneAllChannels', {
+                    completed: status.completed_channels,
+                    total: status.total_channels,
+                    failed: status.failed_channels,
+                }));
+            }
+        }
+    }, [queryClient, status, tTest]);
+
+    if (isBackgroundRunning) {
+        return (
+            <button
+                type="button"
+                aria-label={tTest('stopButton')}
+                disabled={cancelTest.isPending}
+                onClick={() => {
+                    cancelTest.mutate(undefined, {
+                        onSuccess: () => {
+                            toast.success(tTest('toastCancelledAll'));
+                            statusQuery.refetch();
+                        },
+                    });
+                }}
+                className={buttonVariants({
+                    variant: 'ghost',
+                    size: 'icon',
+                    className: 'rounded-xl transition-none hover:bg-transparent text-destructive hover:text-destructive disabled:opacity-50',
+                })}
+                title={status ? tTest('progressAll', { completed: status.completed_channels, total: status.total_channels }) : tTest('stopButton')}
+            >
+                <StopCircle className="size-4" />
+            </button>
+        );
+    }
+
+    return (
+        <button
+            type="button"
+            aria-label={t('testAllAriaLabel')}
+            disabled={isPending}
+            onClick={() => {
+                testAll.mutate(
+                    { include_disabled_keys: true, include_disabled_channels: true },
+                    {
+                        onSuccess: (resp) => {
+                            if (resp.running) {
+                                toast.success(tTest('toastStartedAll', {
+                                    total: resp.status?.total_channels ?? 0,
+                                }));
+                                statusQuery.refetch();
+                                return;
+                            }
+                            const summaries = resp.summaries ?? [];
+                            const totalPass = summaries.reduce((s: number, x) => s + x.success_count, 0);
+                            const totalProbes = summaries.reduce((s: number, x) => s + x.total_probes, 0);
+                            toast.success(
+                                tTest('toastDoneAll', {
+                                    channels: summaries.length,
+                                    pass: totalPass,
+                                    total: totalProbes,
+                                })
+                            );
+                        },
+                        onError: (err: Error) => toast.error(err.message),
+                    }
+                );
+            }}
+            className={buttonVariants({
+                variant: 'ghost',
+                size: 'icon',
+                className: 'rounded-xl transition-none hover:bg-transparent text-muted-foreground hover:text-foreground disabled:opacity-50',
+            })}
+            title={t('testAllAriaLabel')}
+        >
+            {isPending ? (
+                <Loader2 className="size-4 animate-spin" />
+            ) : (
+                <Stethoscope className="size-4 transition-colors duration-300" />
+            )}
+        </button>
     );
 }
 

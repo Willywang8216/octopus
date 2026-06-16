@@ -11,12 +11,14 @@ import (
 )
 
 const (
-	TaskPriceUpdate  = "price_update"
-	TaskStatsSave    = "stats_save"
-	TaskRelayLogSave = "relay_log_save"
-	TaskSyncLLM      = "sync_llm"
-	TaskCleanLLM     = "clean_llm"
-	TaskBaseUrlDelay = "base_url_delay"
+	TaskPriceUpdate        = "price_update"
+	TaskStatsSave          = "stats_save"
+	TaskRelayLogSave       = "relay_log_save"
+	TaskSyncLLM            = "sync_llm"
+	TaskCleanLLM           = "clean_llm"
+	TaskBaseUrlDelay       = "base_url_delay"
+	TaskChannelHealthCheck = "channel_health_check"
+	TaskChannelKeySave     = "channel_key_save"
 )
 
 func Init() {
@@ -53,10 +55,32 @@ func Init() {
 	}
 	statsSaveInterval := time.Duration(statsSaveIntervalMinutes) * time.Minute
 	Register(TaskStatsSave, statsSaveInterval, false, op.StatsSaveDBTask)
+
+	// 注册 ChannelKey 保存任务（将运行时更新写入数据库）
+	channelKeySaveIntervalMinutes, err := op.SettingGetInt(model.SettingKeyChannelKeySaveInterval)
+	if err != nil {
+		log.Warnf("failed to get channel key save interval: %v", err)
+		return
+	}
+	Register(TaskChannelKeySave, time.Duration(channelKeySaveIntervalMinutes)*time.Minute, false, func() {
+		if err := op.ChannelKeySaveDB(context.Background()); err != nil {
+			log.Warnf("channel key save db task failed: %v", err)
+		}
+	})
+
 	// 注册中继日志保存任务
 	Register(TaskRelayLogSave, 10*time.Minute, false, func() {
 		if err := op.RelayLogSaveDBTask(context.Background()); err != nil {
 			log.Warnf("relay log save db task failed: %v", err)
 		}
 	})
+
+	// 注册渠道健康检查任务（自动重测被禁用的key/通道）
+	healthCheckMinutes, err := op.SettingGetInt(model.SettingKeyHealthCheckInterval)
+	if err == nil && healthCheckMinutes > 0 {
+		healthCheckInterval := time.Duration(healthCheckMinutes) * time.Minute
+		// runOnStart=false: don't probe upstream providers immediately on
+		// boot; let the user trigger the first manual test instead.
+		Register(string(model.SettingKeyHealthCheckInterval), healthCheckInterval, false, ChannelHealthCheckTask)
+	}
 }

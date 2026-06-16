@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bestruirui/octopus/internal/client"
 	"github.com/bestruirui/octopus/internal/helper"
 	dbmodel "github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
@@ -25,15 +27,20 @@ import (
 	"github.com/tmaxmax/go-sse"
 )
 
+// nonStreamAttemptTimeout caps the wall time of a single non-streaming relay
+// attempt. If exceeded, the iterator advances to the next channel. Streaming
+// requests are NOT bounded by this timeout — they rely on group.FirstTokenTimeOut
+// for first-token detection and the underlying transport's ResponseHeaderTimeout
+// for connection-level health.
+const nonStreamAttemptTimeout = 90 * time.Second
+
 // Handler 处理入站请求并转发到上游服务
 func Handler(inboundType inbound.InboundType, c *gin.Context) {
-	// 解析请求
 	internalRequest, inAdapter, err := parseRequest(inboundType, c)
 	if err != nil {
 		return
 	}
-	supportedModels := c.GetString("supported_models")
-	if supportedModels != "" {
+	if supportedModels := c.GetString("supported_models"); supportedModels != "" {
 		supportedModelsArray := strings.Split(supportedModels, ",")
 		if !slices.Contains(supportedModelsArray, internalRequest.Model) {
 			resp.Error(c, http.StatusBadRequest, "model not supported")
@@ -44,24 +51,20 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 	requestModel := internalRequest.Model
 	apiKeyID := c.GetInt("api_key_id")
 
-	// 获取通道分组
 	group, err := op.GroupGetEnabledMap(requestModel, c.Request.Context())
 	if err != nil {
 		resp.Error(c, http.StatusNotFound, "model not found")
 		return
 	}
 
-	// 创建迭代器（策略排序 + 粘性优先）
 	iter := balancer.NewIterator(group, apiKeyID, requestModel)
 	if iter.Len() == 0 {
 		resp.Error(c, http.StatusServiceUnavailable, "no available channel")
 		return
 	}
 
-	// 初始化 Metrics
 	metrics := NewRelayMetrics(apiKeyID, requestModel, internalRequest)
 
-	// 请求级上下文
 	req := &relayRequest{
 		c:               c,
 		inAdapter:       inAdapter,
@@ -85,10 +88,8 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 
 		item := iter.Item()
 
-		// 获取通道
 		channel, err := op.ChannelGet(item.ChannelID, c.Request.Context())
 		if err != nil {
-			log.Warnf("failed to get channel %d: %v", item.ChannelID, err)
 			iter.Skip(item.ChannelID, 0, fmt.Sprintf("channel_%d", item.ChannelID), fmt.Sprintf("channel not found: %v", err))
 			lastErr = err
 			continue
@@ -98,65 +99,102 @@ func Handler(inboundType inbound.InboundType, c *gin.Context) {
 			continue
 		}
 
-		usedKey := channel.GetChannelKey()
-		if usedKey.ChannelKey == "" {
+		keys := channel.GetAvailableKeys()
+		if len(keys) == 0 {
 			iter.Skip(channel.ID, 0, channel.Name, "no available key")
 			continue
 		}
 
-		// 熔断检查
-		if iter.SkipCircuitBreak(channel.ID, usedKey.ID, channel.Name) {
-			continue
+		// Prefer keys that have a saved successful probe for the exact model.
+		// If there is no saved success, keep the previous sticky-key behaviour.
+		if successfulKeyIDs, err := op.ChannelSuccessfulTestKeyIDs(c.Request.Context(), channel.ID, item.ModelName); err == nil && len(successfulKeyIDs) > 0 {
+			preferred := make([]dbmodel.ChannelKey, 0, len(keys))
+			fallback := make([]dbmodel.ChannelKey, 0, len(keys))
+			for _, key := range keys {
+				if _, ok := successfulKeyIDs[key.ID]; ok {
+					preferred = append(preferred, key)
+				} else {
+					fallback = append(fallback, key)
+				}
+			}
+			keys = append(preferred, fallback...)
+		} else if stickyKeyID := iter.StickyKeyID(); stickyKeyID > 0 {
+			// 粘性命中时优先沿用上次成功的 key，确保 (channel, key) 元组对会话保持有意义。
+			for i, k := range keys {
+				if k.ID == stickyKeyID {
+					keys[0], keys[i] = keys[i], keys[0]
+					break
+				}
+			}
 		}
+		keyID := keys[0].ID
 
-		// 出站适配器
 		outAdapter := outbound.Get(channel.Type)
 		if outAdapter == nil {
-			iter.Skip(channel.ID, usedKey.ID, channel.Name, fmt.Sprintf("unsupported channel type: %d", channel.Type))
+			iter.Skip(channel.ID, keyID, channel.Name, fmt.Sprintf("unsupported channel type: %d", channel.Type))
 			continue
 		}
 
-		// 类型兼容性检查
-		if internalRequest.IsEmbeddingRequest() && !outbound.IsEmbeddingChannelType(channel.Type) {
-			iter.Skip(channel.ID, usedKey.ID, channel.Name, "channel type not compatible with embedding request")
+		attemptRequest := *internalRequest
+		attemptRequest.Model = item.ModelName
+		if channel.ParamOverride != nil && strings.TrimSpace(*channel.ParamOverride) != "" {
+			if err := json.Unmarshal([]byte(*channel.ParamOverride), &attemptRequest); err != nil {
+				log.Warnf("failed to apply param override for channel %s: %v", channel.Name, err)
+			}
+			attemptRequest.Model = item.ModelName
+		}
+
+		if attemptRequest.IsEmbeddingRequest() && !outbound.IsEmbeddingChannelType(channel.Type) {
+			iter.Skip(channel.ID, keyID, channel.Name, "channel type not compatible with embedding request")
+			continue
+		}
+		if internalRequest.IsRerankRequest() && !outbound.IsRerankChannelType(channel.Type) {
+			iter.Skip(channel.ID, keyID, channel.Name, "channel type not compatible with rerank request")
 			continue
 		}
 		if internalRequest.IsChatRequest() && !outbound.IsChatChannelType(channel.Type) {
-			iter.Skip(channel.ID, usedKey.ID, channel.Name, "channel type not compatible with chat request")
+			iter.Skip(channel.ID, keyID, channel.Name, "channel type not compatible with chat request")
 			continue
 		}
 
-		// 设置实际模型
-		internalRequest.Model = item.ModelName
+		log.Infof("request model %s, mode: %d, forwarding to channel: %s model: %s (attempt %d/%d, sticky=%t)", requestModel, group.Mode, channel.Name, item.ModelName, iter.Index()+1, iter.Len(), iter.IsSticky())
 
-		log.Infof("request model %s, mode: %d, forwarding to channel: %s model: %s (attempt %d/%d, sticky=%t)",
-			requestModel, group.Mode, channel.Name, item.ModelName,
-			iter.Index()+1, iter.Len(), iter.IsSticky())
+		for _, usedKey := range keys {
+			if iter.SkipCircuitBreak(channel.ID, usedKey.ID, channel.Name) {
+				continue
+			}
+			ra := &relayAttempt{
+				relayRequest:         req,
+				outAdapter:           outAdapter,
+				channel:              channel,
+				usedKey:              usedKey,
+				attemptRequest:       &attemptRequest,
+				groupItemID:          item.ID,
+				firstTokenTimeOutSec: group.FirstTokenTimeOut,
+			}
 
-		// 构造尝试级上下文 -- 只写变化的 4 个字段
-		ra := &relayAttempt{
-			relayRequest:         req,
-			outAdapter:           outAdapter,
-			channel:              channel,
-			usedKey:              usedKey,
-			firstTokenTimeOutSec: group.FirstTokenTimeOut,
+			result := ra.attempt()
+			if result.Success {
+				metrics.Save(c.Request.Context(), true, nil, iter.Attempts())
+				return
+			}
+			lastErr = result.Err
+			if result.Written {
+				metrics.Save(c.Request.Context(), false, result.Err, iter.Attempts())
+				return
+			}
+			if result.SkipChannel {
+				break
+			}
 		}
-
-		result := ra.attempt()
-		if result.Success {
-			metrics.Save(c.Request.Context(), true, nil, iter.Attempts())
-			return
-		}
-		if result.Written {
-			metrics.Save(c.Request.Context(), false, result.Err, iter.Attempts())
-			return
-		}
-		lastErr = result.Err
 	}
 
-	// 所有通道都失败
 	metrics.Save(c.Request.Context(), false, lastErr, iter.Attempts())
-	resp.Error(c, http.StatusBadGateway, "all channels failed")
+	msg := "all channels failed"
+	if lastErr != nil {
+		msg = fmt.Sprintf("all channels failed: %v", lastErr)
+	}
+	resp.Error(c, http.StatusBadGateway, msg)
 }
 
 // attempt 统一管理一次通道尝试的完整生命周期
@@ -166,6 +204,15 @@ func (ra *relayAttempt) attempt() attemptResult {
 	// 转发请求
 	statusCode, fwdErr := ra.forward()
 
+	// Host concurrency fail-fast: treat as a skip so we can fail over immediately.
+	// Do not punish keys / circuit breaker for local admission control.
+	if fwdErr != nil && errors.Is(fwdErr, client.ErrHostConcurrencyLimitReached) {
+		span.End(dbmodel.AttemptSkipped, statusCode, fwdErr.Error())
+		// Host-level admission control has nothing to do with a specific key.
+		// Trying other keys would just waste attempts; fail over to the next channel.
+		return attemptResult{Success: false, Written: false, SkipChannel: true, Err: fwdErr}
+	}
+
 	// 更新 channel key 状态
 	ra.usedKey.StatusCode = statusCode
 	ra.usedKey.LastUseTimeStamp = time.Now().Unix()
@@ -174,7 +221,7 @@ func (ra *relayAttempt) attempt() attemptResult {
 		// ====== 成功 ======
 		ra.collectResponse()
 		ra.usedKey.TotalCost += ra.metrics.Stats.InputCost + ra.metrics.Stats.OutputCost
-		op.ChannelKeyUpdate(ra.usedKey)
+		op.ChannelMarkKeySuccess(ra.usedKey)
 
 		span.End(dbmodel.AttemptSuccess, statusCode, "")
 
@@ -185,7 +232,7 @@ func (ra *relayAttempt) attempt() attemptResult {
 		})
 
 		// 熔断器：记录成功
-		balancer.RecordSuccess(ra.channel.ID, ra.usedKey.ID, ra.internalRequest.Model)
+		balancer.RecordSuccess(ra.channel.ID, ra.usedKey.ID, ra.attemptRequest.Model)
 		// 会话保持：更新粘性记录
 		balancer.SetSticky(ra.apiKeyID, ra.requestModel, ra.channel.ID, ra.usedKey.ID)
 
@@ -195,7 +242,29 @@ func (ra *relayAttempt) attempt() attemptResult {
 	}
 
 	// ====== 失败 ======
-	op.ChannelKeyUpdate(ra.usedKey)
+	billingIssue := isBillingIssue(statusCode, fwdErr)
+	op.ChannelMarkKeyFailure(ra.usedKey, statusCode, fwdErr, billingIssue)
+
+	errorClass, disabledReason := helper.ClassifyChannelFailure(statusCode, fwdErr)
+	if errorClass.IsAttentionNeeded() {
+		disabledReason = helper.HumanChannelFailureReason(errorClass, disabledReason)
+		ra.usedKey.Enabled = false
+		ra.usedKey.AutoDisabled = true
+		ra.usedKey.DisabledClass = errorClass
+		ra.usedKey.DisabledReason = disabledReason
+		if ra.usedKey.DisabledAt == 0 {
+			ra.usedKey.DisabledAt = time.Now().Unix()
+		}
+		if err := op.ChannelRuntimeAutoDisableKey(ra.channel.ID, ra.usedKey, errorClass, disabledReason, ra.c.Request.Context()); err != nil {
+			log.Warnf("failed to auto-disable key %d on channel %s: %v", ra.usedKey.ID, ra.channel.Name, err)
+			op.ChannelKeyUpdate(ra.usedKey)
+		}
+	}
+
+	if err := op.ChannelCheckAutoDisable(ra.channel.ID, billingIssue, ra.c.Request.Context()); err != nil {
+		log.Warnf("failed to check channel auto disable (channel=%d): %v", ra.channel.ID, err)
+	}
+
 	span.End(dbmodel.AttemptFailed, statusCode, fwdErr.Error())
 
 	// Channel 维度统计
@@ -205,7 +274,7 @@ func (ra *relayAttempt) attempt() attemptResult {
 	})
 
 	// 熔断器：记录失败
-	balancer.RecordFailure(ra.channel.ID, ra.usedKey.ID, ra.internalRequest.Model)
+	balancer.RecordFailure(ra.channel.ID, ra.usedKey.ID, ra.attemptRequest.Model)
 
 	ra.metrics.ParamOverride = paramOverrideValue(ra.channel.ParamOverride)
 
@@ -214,10 +283,48 @@ func (ra *relayAttempt) attempt() attemptResult {
 		ra.collectResponse()
 	}
 	return attemptResult{
-		Success: false,
-		Written: written,
-		Err:     fmt.Errorf("channel %s failed: %v", ra.channel.Name, fwdErr),
+		Success:      false,
+		Written:      written,
+		BillingIssue: billingIssue,
+		Err:          fmt.Errorf("channel %s failed: %v", ra.channel.Name, fwdErr),
 	}
+}
+
+func isBillingIssue(statusCode int, err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	billingKeywords := []string{
+		"insufficient fund",
+		"insufficient_fund",
+		"insufficient funds",
+		"not enough quota",
+		"quota exceeded",
+		"billing",
+		"balance",
+		"credit",
+		"payment required",
+		"no money",
+		"余额不足",
+		"额度不足",
+		"配额不足",
+		"没钱",
+		"欠费",
+		"upstream stream closed before first payload",
+		"upstream closed before any payload",
+		"empty_stream",
+	}
+	for _, keyword := range billingKeywords {
+		if strings.Contains(msg, keyword) {
+			return true
+		}
+	}
+	if (statusCode == http.StatusInternalServerError || statusCode == http.StatusBadGateway) &&
+		(strings.Contains(msg, "closed before") || strings.Contains(msg, "empty_stream")) {
+		return true
+	}
+	return false
 }
 
 // parseRequest 解析并验证入站请求
@@ -229,6 +336,11 @@ func parseRequest(inboundType inbound.InboundType, c *gin.Context) (*model.Inter
 	}
 
 	inAdapter := inbound.Get(inboundType)
+	if inAdapter == nil {
+		err := fmt.Errorf("unsupported inbound type: %d", inboundType)
+		resp.Error(c, http.StatusInternalServerError, err.Error())
+		return nil, nil, err
+	}
 	internalRequest, err := inAdapter.TransformRequest(c.Request.Context(), body)
 	if err != nil {
 		resp.Error(c, http.StatusInternalServerError, err.Error())
@@ -250,10 +362,19 @@ func parseRequest(inboundType inbound.InboundType, c *gin.Context) (*model.Inter
 func (ra *relayAttempt) forward() (int, error) {
 	ctx := ra.c.Request.Context()
 
+	// Cap non-streaming attempts so a hung upstream can't pin the request.
+	// Streaming uses the first-token timeout from group config instead.
+	isStream := ra.internalRequest.Stream != nil && *ra.internalRequest.Stream
+	if !isStream {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, nonStreamAttemptTimeout)
+		defer cancel()
+	}
+
 	// 构建出站请求
 	outboundRequest, err := ra.outAdapter.TransformRequest(
 		ctx,
-		ra.internalRequest,
+		ra.attemptRequest,
 		ra.channel.GetBaseUrl(),
 		ra.usedKey.ChannelKey,
 	)
@@ -304,15 +425,15 @@ func (ra *relayAttempt) forward() (int, error) {
 
 	// 检查响应状态
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		body, err := io.ReadAll(response.Body)
+		body, err := io.ReadAll(io.LimitReader(response.Body, 64*1024))
 		if err != nil {
-			return 0, fmt.Errorf("failed to read response body: %w", err)
+			return response.StatusCode, fmt.Errorf("failed to read response body: %w", err)
 		}
-		return 0, fmt.Errorf("upstream error: %d: %s", response.StatusCode, string(body))
+		return response.StatusCode, fmt.Errorf("upstream error: %d: %s", response.StatusCode, string(body))
 	}
 
 	// 处理响应
-	if ra.internalRequest.Stream != nil && *ra.internalRequest.Stream {
+	if ra.attemptRequest.Stream != nil && *ra.attemptRequest.Stream {
 		if err := ra.handleStreamResponse(ctx, response); err != nil {
 			return 0, err
 		}
@@ -322,6 +443,154 @@ func (ra *relayAttempt) forward() (int, error) {
 		return 0, err
 	}
 	return response.StatusCode, nil
+}
+
+func (ra *relayAttempt) handleUpstreamFailure(statusCode int, body []byte) {
+	ra.maybeAutoDisableGroupItem(statusCode, body)
+	ra.maybeAutoDisableKey(statusCode, body)
+}
+
+func (ra *relayAttempt) maybeAutoDisableGroupItem(statusCode int, body []byte) {
+	if ra == nil || ra.groupItemID == 0 {
+		return
+	}
+	if statusCode != http.StatusServiceUnavailable {
+		return
+	}
+
+	lower := bytes.ToLower(body)
+	if !bytes.Contains(lower, []byte("\u65e0\u53ef\u7528\u6e20\u9053")) && !bytes.Contains(lower, []byte("no available channel")) {
+		return
+	}
+
+	reason := strings.TrimSpace(string(body))
+	if len(reason) > 256 {
+		reason = reason[:256]
+	}
+	if err := op.GroupItemDisable(ra.groupItemID, reason, ra.c.Request.Context()); err != nil {
+		log.Warnf("failed to auto-disable group item %d: %v", ra.groupItemID, err)
+	}
+}
+
+func (ra *relayAttempt) maybeAutoDisableKey(statusCode int, body []byte) {
+	enabled, err := op.SettingGetBool(dbmodel.SettingKeyChannelKeyAutoDisableEnabled)
+	if err != nil || !enabled {
+		return
+	}
+	if ra == nil || ra.channel == nil {
+		return
+	}
+	if ra.usedKey.ID == 0 || ra.usedKey.ChannelID == 0 {
+		return
+	}
+	if !ra.usedKey.Enabled {
+		return
+	}
+
+	lower := bytes.ToLower(body)
+	if bytes.Contains(lower, []byte("stream must be set to true")) {
+		return
+	}
+
+	// Rate limit should be temporary; Channel.GetAvailableKeys() already backs off for 5 minutes.
+	if statusCode == http.StatusTooManyRequests {
+		return
+	}
+
+	category := ""
+	shouldDisable := false
+
+	// no_money (insufficient funds / quota)
+	if bytes.Contains(lower, []byte("insufficient")) ||
+		bytes.Contains(lower, []byte("balance_insufficient")) ||
+		bytes.Contains(lower, []byte("insufficient_user_quota")) ||
+		bytes.Contains(lower, []byte("insufficient_fund")) ||
+		bytes.Contains(lower, []byte("\u4f59\u989d\u4e0d\u8db3")) ||
+		bytes.Contains(lower, []byte("\u989d\u5ea6\u4e0d\u8db3")) ||
+		bytes.Contains(lower, []byte("\u9884\u6263\u8d39\u989d\u5ea6\u5931\u8d25")) {
+		shouldDisable = true
+		category = "no_money"
+	}
+
+	// bad_gateway / temporary upstream failures
+	if statusCode == http.StatusBadGateway || statusCode == http.StatusGatewayTimeout || statusCode == 520 || statusCode == 522 || statusCode == 524 {
+		shouldDisable = true
+		if category == "" {
+			category = "bad_gateway"
+		}
+	}
+	if bytes.Contains(lower, []byte("cloudflare")) || bytes.Contains(lower, []byte("cf-ray")) || bytes.Contains(lower, []byte("bad gateway")) {
+		shouldDisable = true
+		if category == "" {
+			category = "bad_gateway"
+		}
+	}
+
+	// invalid_key / blocked
+	if statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden || statusCode == http.StatusPaymentRequired {
+		shouldDisable = true
+		if category == "" {
+			category = "invalid_key"
+		}
+	}
+	if bytes.Contains(lower, []byte("your request was block")) || bytes.Contains(lower, []byte("request was block")) || bytes.Contains(lower, []byte("request was blocked")) {
+		shouldDisable = true
+		if category == "" {
+			category = "bad_gateway"
+		}
+	}
+
+	if category == "" {
+		category = "http_" + fmt.Sprintf("%d", statusCode)
+	}
+	if !shouldDisable {
+		return
+	}
+
+	reason := strings.TrimSpace(string(body))
+	if len(reason) > 256 {
+		reason = reason[:256]
+	}
+
+	prevRemark := strings.TrimSpace(ra.usedKey.Remark)
+	ra.usedKey.Enabled = false
+	ra.usedKey.Remark = fmt.Sprintf("auto-disabled: category=%s status=%d time=%s reason=%s", category, statusCode, time.Now().UTC().Format(time.RFC3339), reason)
+	if prevRemark != "" {
+		ra.usedKey.Remark += " | prev=" + prevRemark
+	}
+
+	if err := op.ChannelKeyUpdate(ra.usedKey); err != nil {
+		log.Warnf("failed to auto-disable channel key %d for channel %s: %v", ra.usedKey.ID, ra.channel.Name, err)
+		return
+	}
+
+	ra.maybeAutoDisableChannel(category, statusCode, reason)
+}
+
+func (ra *relayAttempt) maybeAutoDisableChannel(category string, statusCode int, reason string) {
+	ch, err := op.ChannelGet(ra.channel.ID, ra.c.Request.Context())
+	if err != nil {
+		return
+	}
+	if !ch.Enabled {
+		return
+	}
+
+	for _, k := range ch.Keys {
+		if !k.Enabled {
+			continue
+		}
+		if strings.TrimSpace(k.ChannelKey) == "" {
+			continue
+		}
+		return
+	}
+
+	tags := []dbmodel.ChannelTag{dbmodel.ChannelTagAutoDisabled}
+	if category == "no_money" {
+		tags = append(tags, dbmodel.ChannelTagBillingIssue)
+	}
+	_ = op.ChannelAutoDisable(ch.ID, tags, ra.c.Request.Context())
 }
 
 // copyHeaders 复制请求头，过滤 hop-by-hop 头
@@ -491,7 +760,7 @@ func (ra *relayAttempt) collectResponse() {
 		return
 	}
 
-	ra.metrics.SetInternalResponse(internalResponse, ra.internalRequest.Model)
+	ra.metrics.SetInternalResponse(internalResponse, ra.attemptRequest.Model)
 }
 
 func paramOverrideValue(ptr *string) string {

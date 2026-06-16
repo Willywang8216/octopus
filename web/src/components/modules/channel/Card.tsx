@@ -4,14 +4,18 @@ import {
     MorphingDialogContainer,
     MorphingDialogContent,
 } from '@/components/ui/morphing-dialog';
-import { CheckCircle2, DollarSign, Key, Layers, MessageSquare, XCircle } from 'lucide-react';
+import { CheckCircle2, DollarSign, Key, Layers, MessageSquare, ShieldOff, XCircle } from 'lucide-react';
 import { type StatsMetricsFormatted } from '@/api/endpoints/stats';
 import { type Channel, useEnableChannel } from '@/api/endpoints/channel';
 import { CardContent } from './CardContent';
+import { HealthPill } from './HealthPill';
 import { useTranslations } from 'next-intl';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/animate-ui/components/animate/tooltip';
 import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
 import { toast } from '@/components/common/Toast';
+import { cn } from '@/lib/utils';
+import { AttentionTag } from './TestResults';
 
 export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; stats: StatsMetricsFormatted; layout?: 'grid' | 'list' }) {
     const t = useTranslations('channel.card');
@@ -32,6 +36,16 @@ export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; st
         ...splitModels(channel.custom_model),
     ]).size;
     const enabledKeyCount = channel.keys.filter((item) => item.enabled).length;
+    const autoDisabledKeyCount = channel.keys.filter((item) => item.auto_disabled).length;
+
+    // Aggregate the most recent probe outcome stored on each key.
+    const testTotalSuccess = channel.keys.reduce((s, k) => s + (k.last_test_success ?? 0), 0);
+    const testTotalFailed = channel.keys.reduce((s, k) => s + (k.last_test_failed ?? 0), 0);
+    const testTotal = testTotalSuccess + testTotalFailed;
+    const hasTestData = testTotal > 0;
+    const progress = channel.test_progress;
+    const progressTotal = progress?.total_probes || 0;
+    const progressCompleted = progress?.completed_probes || 0;
 
     const handleEnableChange = (checked: boolean) => {
         enableChannel.mutate(
@@ -50,14 +64,17 @@ export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; st
     return (
         <MorphingDialog>
             <MorphingDialogTrigger className="w-full">
-                <article className="flex flex-col gap-4 rounded-3xl border border-border bg-card text-card-foreground p-4 transition-all duration-300">
+                <article data-channel-id={channel.id} className="flex flex-col gap-4 rounded-3xl border border-border bg-card text-card-foreground p-4 transition-all duration-300">
                     <header className="relative flex items-center justify-between gap-2">
-                        <Tooltip side="top" sideOffset={10} align="center">
-                            <TooltipTrigger asChild>
-                                <h3 className="text-lg font-bold truncate min-w-0">{channel.name}</h3>
-                            </TooltipTrigger>
-                            <TooltipContent key={channel.name}>{channel.name}</TooltipContent>
-                        </Tooltip>
+                        <div className="flex items-center gap-2 min-w-0">
+                            <Tooltip side="top" sideOffset={10} align="center">
+                                <TooltipTrigger asChild>
+                                    <h3 className="text-lg font-bold truncate min-w-0">{channel.name}</h3>
+                                </TooltipTrigger>
+                                <TooltipContent key={channel.name}>{channel.name}</TooltipContent>
+                            </Tooltip>
+                            <HealthPill health={channel.health} />
+                        </div>
                         <Switch
                             checked={channel.enabled}
                             onCheckedChange={handleEnableChange}
@@ -65,6 +82,81 @@ export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; st
                             onClick={(e) => e.stopPropagation()}
                         />
                     </header>
+
+                    {/* Tag bar: surface the things that previously required opening the dialog —
+                        key counts, auto-disabled status with reason, and the latest probe outcome. */}
+                    <div className="flex flex-wrap items-center gap-1.5 -mt-1">
+                        <Tooltip side="top" sideOffset={6} align="center">
+                            <TooltipTrigger asChild>
+                                <Badge
+                                    variant="secondary"
+                                    className={cn(
+                                        'h-5 px-1.5 text-[10px] gap-1 inline-flex items-center',
+                                        enabledKeyCount === 0 && channel.keys.length > 0
+                                            ? 'bg-red-500/15 text-red-700 dark:text-red-400'
+                                            : autoDisabledKeyCount > 0
+                                                ? 'bg-orange-500/15 text-orange-700 dark:text-orange-400'
+                                                : ''
+                                    )}
+                                >
+                                    <Key className="size-3" />
+                                    {enabledKeyCount}/{channel.keys.length}
+                                </Badge>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                {tSections('keys')}: {enabledKeyCount} {t('enabledShort')} / {channel.keys.length}
+                                {autoDisabledKeyCount > 0 && (
+                                    <>
+                                        {' · '}
+                                        {autoDisabledKeyCount} {t('autoDisabledShort')}
+                                    </>
+                                )}
+                            </TooltipContent>
+                        </Tooltip>
+                        <Badge variant="secondary" className="h-5 px-1.5 text-[10px] gap-1 inline-flex items-center">
+                            <Layers className="size-3" />
+                            {modelCount}
+                        </Badge>
+                        {progress?.running && (
+                            <Badge variant="secondary" className="h-5 px-1.5 text-[10px] gap-1 inline-flex items-center bg-orange-500/15 text-orange-700 dark:text-orange-400">
+                                <MessageSquare className="size-3 animate-pulse" />
+                                {progressCompleted}/{progressTotal || '—'}
+                            </Badge>
+                        )}
+                        {hasTestData && (
+                            <Badge
+                                variant="secondary"
+                                className={cn(
+                                    'h-5 px-1.5 text-[10px] gap-1 inline-flex items-center',
+                                    testTotalFailed === 0
+                                        ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400'
+                                        : testTotalSuccess === 0
+                                            ? 'bg-red-500/15 text-red-700 dark:text-red-400'
+                                            : 'bg-orange-500/15 text-orange-700 dark:text-orange-400'
+                                )}
+                                title={`${testTotalSuccess}/${testTotal} models passing`}
+                            >
+                                <CheckCircle2 className="size-3" />
+                                {testTotalSuccess}/{testTotal}
+                            </Badge>
+                        )}
+                        {channel.auto_disabled && (
+                            <AttentionTag
+                                cls={channel.disabled_class}
+                                reason={channel.disabled_reason}
+                            />
+                        )}
+                        {channel.skip_test && (
+                            <Tooltip side="top" sideOffset={6} align="center">
+                                <TooltipTrigger asChild>
+                                    <Badge variant="secondary" className="h-5 px-1.5 text-[10px] gap-1 inline-flex items-center bg-muted text-muted-foreground">
+                                        <ShieldOff className="size-3" />
+                                    </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>{t('skipTest')}</TooltipContent>
+                            </Tooltip>
+                        )}
+                    </div>
 
                     {isListLayout ? (
                         <dl className="grid grid-cols-2 gap-2 lg:grid-cols-6">

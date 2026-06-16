@@ -55,6 +55,7 @@ func InitDB(dbType, dsn string, debug bool) error {
 		&model.User{},
 		&model.Channel{},
 		&model.ChannelKey{},
+		&model.ChannelTestResult{},
 		&model.Group{},
 		&model.GroupItem{},
 		&model.LLMInfo{},
@@ -67,6 +68,7 @@ func InitDB(dbType, dsn string, debug bool) error {
 		&model.StatsChannel{},
 		&model.StatsAPIKey{},
 		&model.RelayLog{},
+		&model.ChannelKeyModelStatus{},
 		&migrate.MigrationRecord{},
 	); err != nil {
 		return err

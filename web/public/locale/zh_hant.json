@@ -53,6 +53,7 @@
         "setting": "設定"
     },
     "toolbar": {
+        "testAllAriaLabel": "測試所有供應源",
         "popover": {
             "ariaLabel": "檢視選項",
             "layout": "佈局",
@@ -70,7 +71,8 @@
                 "channel": {
                     "all": "全部供應源",
                     "enabled": "僅啟用",
-                    "disabled": "僅停用"
+                    "disabled": "僅停用",
+                    "fundingIssue": "資金問題"
                 },
                 "group": {
                     "all": "全部分組",
@@ -81,8 +83,22 @@
                     "all": "全部模型",
                     "priced": "僅收費",
                     "free": "僅免費"
+                },
+                "health": {
+                    "title": "健康度",
+                    "all": "全部",
+                    "alive": "正常",
+                    "flaky": "不穩定",
+                    "zombie": "殭屍",
+                    "dead": "已死",
+                    "unknown": "未知"
                 }
             }
+        },
+        "channel": {
+            "testAll": "測試所有渠道",
+            "testAllSuccess": "所有渠道測試完成",
+            "testAllFailed": "渠道測試失敗"
         }
     },
     "common": {
@@ -181,6 +197,10 @@
             "maxCooldown": {
                 "label": "最大冷卻時間（秒）",
                 "placeholder": "請輸入最大冷卻時間"
+            },
+            "autoDisableRetryDays": {
+                "label": "自動停用後重試間隔（天）",
+                "placeholder": "請輸入天數"
             },
             "hint": "當渠道連續失敗達到閾值後觸發熔斷，冷卻時間按指數退避增長，上限為最大冷卻時間"
         },
@@ -337,6 +357,18 @@
             },
             "clearSuccess": "日誌已清空",
             "clearFailed": "清空失敗"
+        },
+        "channelHealth": {
+            "title": "供應源健康檢查",
+            "hint": "定期重新測試自動停用的供應源和 Key。間隔設為 0 可關閉定時重測。",
+            "interval": {
+                "label": "重測間隔（分鐘）",
+                "placeholder": "0 = 關閉"
+            },
+            "timeout": {
+                "label": "單次探測逾時（秒）",
+                "placeholder": "20"
+            }
         }
     },
     "group": {
@@ -351,12 +383,25 @@
         "create": {
             "title": "建立分組",
             "submit": "建立",
-            "submitting": "建立中..."
+            "submitting": "建立中...",
+            "duplicateOpenHint": "正在顯示既有供應源：{name}",
+            "combineSuccess": "已合併到 {name}",
+            "combineFailed": "合併供應源失敗"
+        },
+        "preset": {
+            "title": "編碼器預設",
+            "modelPlaceholder": "相容模型，例如 agentic-coder",
+            "create": "建立 Claude Code 和 Codex 分組",
+            "creating": "建立中...",
+            "hint": "建立 anthropic-claude-code 和 openai-codex 分組，並指向你選擇的相容模型。",
+            "success": "編碼器預設分組已建立",
+            "failed": "建立編碼器預設分組失敗"
         },
         "card": {
             "empty": "暫無規則"
         },
         "detail": {
+            "duplicateOpenHint": "正在顯示既有供應源：{name}",
             "actions": {
                 "edit": "編輯",
                 "cancel": "取消",
@@ -388,7 +433,13 @@
             "failover": "故障轉移",
             "weighted": "加權分配"
         },
-        "empty": "暫無分組，點擊左上角按鈕建立"
+        "empty": "暫無分組，點擊左上角按鈕建立",
+        "createAgentic": {
+            "button": "建立代碼程式分組",
+            "creating": "建立中...",
+            "success": "代碼程式分組建立成功",
+            "failed": "建立代碼程式分組失敗"
+        }
     },
     "model": {
         "create": {
@@ -449,15 +500,99 @@
         }
     },
     "channel": {
+        "health": {
+            "alive": "正常",
+            "flaky": "不穩定",
+            "zombie": "殭屍",
+            "dead": "已死",
+            "unknown": "未知"
+        },
+        "overview": {
+            "title": "供應源概覽",
+            "name": "名稱",
+            "type": "類型",
+            "keys": "金鑰",
+            "models": "模型",
+            "testResult": "測試結果",
+            "error": "錯誤",
+            "status": "狀態",
+            "action": "操作",
+            "stopAll": "停止全部",
+            "stopChannel": "停止",
+            "noChannels": "暫無供應源"
+        },
         "card": {
             "requestCount": "請求次數",
             "totalCost": "總成本",
+            "enabledShort": "啟用",
+            "autoDisabledShort": "自動停用",
+            "skipTest": "跳過測試",
             "toast": {
                 "enabled": "供應源已啟用",
                 "disabled": "供應源已停用"
             }
         },
+        "test": {
+            "sectionTitle": "測試結果",
+            "runButton": "測試渠道",
+            "running": "測試中...",
+            "passing": "通過",
+            "keys": "Key",
+            "models": "模型",
+            "lastTested": "最近測試",
+            "emptyHint": "點擊「測試模型」對每個 (Key × 模型) 組合發起探測，失敗原因會與上游返回一致。",
+            "noModelsTested": "此 Key 暫無測試結果",
+            "noKeysTested": "尚未測試任何 Key",
+            "channelDisabledTitle": "供應源已自動停用 — 需要關注",
+            "channelDisabledHint": "上次探測時此供應源的所有 Key 均失敗。下次定時健康檢查會自動重試，您也可以切換開關手動覆蓋。",
+            "toastDone": "測試完成 — {pass}/{total} 個模型通過",
+            "toastDoneAll": "已測試 {channels} 個供應源 — {pass}/{total} 個模型通過",
+            "keyResultTooltip": "此 Key 上 {pass}/{total} 個模型通過",
+            "errorClass": {
+                "auth_invalid": "API Key 無效",
+                "permission_denied": "權限被拒",
+                "insufficient_quota": "餘額/配額不足",
+                "rate_limited": "限流",
+                "model_not_found": "模型不存在",
+                "bad_request": "請求錯誤",
+                "server_error": "上游 5xx",
+                "network_error": "網路錯誤",
+                "timeout": "逾時",
+                "transform_error": "本機錯誤",
+                "unsupported_channel": "不支援的供應源類型",
+                "other": "失敗"
+            },
+            "toastStartedAll": "已在背景開始測試 {total} 個供應源",
+            "toastDoneAllChannels": "供應源測試完成 — 已檢查 {completed}/{total} 個供應源，失敗 {failed} 個",
+            "stopButton": "停止測試",
+            "toastCancelled": "測試已取消",
+            "toastCancelledAll": "所有測試已取消",
+            "rawLog": "原始日誌",
+            "progressAll": "供應源測試中：{completed}/{total}",
+            "progress": {
+                "running": "測試進行中",
+                "waiting": "等待中",
+                "saving": "正在儲存結果",
+                "done": "測試完成",
+                "failed": "測試失敗",
+                "key": "目前 Key",
+                "model": "目前模型",
+                "passed": "成功",
+                "failedCount": "失敗",
+                "testingKeyModel": "正在用此 Key 測試 {model}"
+            }
+        },
         "detail": {
+            "test": {
+                "testAll": "測試所有模型",
+                "testing": "測試中…",
+                "toastSuccess": "渠道測試完成",
+                "toastFailed": "渠道測試失敗",
+                "ok": "通過",
+                "lastError": "最近錯誤",
+                "unknownError": "未知錯誤",
+                "latency": "延遲"
+            },
             "title": {
                 "edit": "編輯供應源",
                 "view": "供應源詳情"
@@ -467,7 +602,8 @@
                 "tokens": "Token 使用",
                 "costs": "成本詳情",
                 "baseUrls": "Base URLs",
-                "keys": "金鑰"
+                "keys": "金鑰",
+                "modelTestResults": "模型測試結果"
             },
             "noBaseUrls": "暫無 Base URL",
             "noKeys": "暫無金鑰",
@@ -490,7 +626,16 @@
                 "saving": "儲存中...",
                 "delete": "刪除",
                 "confirmDelete": "確認刪除",
-                "deleting": "刪除中..."
+                "deleting": "刪除中...",
+                "checkModels": "檢查模型",
+                "checkingModels": "檢查中...",
+                "checkModelsSuccess": "已觸發模型檢查",
+                "testModel": "測試",
+                "testingModel": "測試中...",
+                "modelAvailable": "模型可用",
+                "modelUnavailable": "模型不可用",
+                "testAllModels": "測試模型",
+                "testingAllModels": "測試中..."
             }
         },
         "create": {
@@ -534,6 +679,7 @@
             "typeGemini": "Gemini",
             "typeVolcengine": "火山引擎",
             "autoSync": "自動同步",
+            "skipTest": "跳過測試",
             "autoGroup": "自動分組",
             "autoGroupNone": "不自動分組",
             "autoGroupFuzzy": "模糊比對",
@@ -541,7 +687,43 @@
             "autoGroupRegex": "正規比對",
             "matchRegex": "匹配正規",
             "matchRegexPlaceholder": "可選：用於匹配請求模型名稱的正規表示式",
-            "remark": "備註"
+            "remark": "備註",
+            "duplicateError": "已存在使用相同 API 端點和金鑰的供應源",
+            "duplicateWarningTitle": "偵測到可能重複的供應源",
+            "dupMatchEndpointAndKey": "相同端點和金鑰",
+            "dupMatchEndpoint": "相同端點",
+            "dupMatchKey": "相同金鑰",
+            "duplicateBlocked": "該端點或 API Key 已存在。請先開啟或合併到重複供應源。",
+            "openDuplicate": "開啟",
+            "combineDuplicate": "合併",
+            "combiningDuplicate": "合併中...",
+            "resolveDuplicateFirst": "先處理重複供應源",
+            "autoDisableTitle": "自動停用",
+            "autoDisableHint": "覆蓋全域設定。留空使用全域預設值。",
+            "autoDisableThreshold": "失敗閾值",
+            "autoDisableThresholdPlaceholder": "全域預設",
+            "autoDisableRetryHours": "重試間隔（小時）",
+            "autoDisableRetryPlaceholder": "全域預設"
         }
+    },
+    "autoDisable": {
+        "title": "自動停用",
+        "threshold": {
+            "label": "失敗閾值（連續失敗次數）",
+            "placeholder": "輸入閾值"
+        },
+        "retryHours": {
+            "label": "重試間隔（小時）",
+            "placeholder": "輸入小時數"
+        },
+        "hint": "金鑰在連續失敗後自動停用。當供應源所有金鑰都被停用時，供應源自動停用，並在設定的時間後重試"
+    },
+    "modelCheck": {
+        "title": "模型可用性",
+        "interval": {
+            "label": "檢查間隔（小時）",
+            "placeholder": "輸入小時數"
+        },
+        "hint": "定期檢查自動同步供應源的模型列表是否最新"
     }
 }

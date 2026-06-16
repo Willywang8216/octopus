@@ -34,6 +34,7 @@ interface VirtualizedGridProps<T> {
     onReachEnd?: () => void;
     reachEndEnabled?: boolean;
     reachEndOffset?: number;
+    scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
 }
 
 function getColumnsForWidth(
@@ -61,17 +62,24 @@ export function VirtualizedGrid<T>({
     onReachEnd,
     reachEndEnabled = false,
     reachEndOffset = 1,
+    scrollContainerRef,
 }: VirtualizedGridProps<T>) {
     'use no memo';
 
     const [containerWidth, setContainerWidth] = useState(() =>
         typeof window === 'undefined' ? 1024 : window.innerWidth
     );
-    const containerRef = useRef<HTMLDivElement | null>(null);
+    const internalRef = useRef<HTMLDivElement | null>(null);
+    const containerRef = useCallback((node: HTMLDivElement | null) => {
+        internalRef.current = node;
+        if (scrollContainerRef) {
+            (scrollContainerRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+        }
+    }, [scrollContainerRef]);
     const reachEndTriggeredRef = useRef(false);
 
     useEffect(() => {
-        const el = containerRef.current;
+        const el = internalRef.current;
         if (!el) return;
 
         const updateWidth = () => {
@@ -118,7 +126,7 @@ export function VirtualizedGrid<T>({
     // eslint-disable-next-line react-hooks/incompatible-library
     const rowVirtualizer = useVirtualizer({
         count: rowCount,
-        getScrollElement: () => containerRef.current,
+        getScrollElement: () => internalRef.current,
         getItemKey: getVirtualRowKey,
         estimateSize: () => estimateItemHeight + gap,
         // Use layout height (not transformed visual height) to avoid scale-animation

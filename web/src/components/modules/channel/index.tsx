@@ -1,19 +1,22 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import { useChannelList } from '@/api/endpoints/channel';
 import { Card } from './Card';
+import { ChannelOverview } from './ChannelOverview';
 import { useSearchStore, useToolbarViewOptionsStore } from '@/components/modules/toolbar';
 import { VirtualizedGrid } from '@/components/common/VirtualizedGrid';
 
 export function Channel() {
     const { data: channelsData } = useChannelList();
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
     const pageKey = 'channel' as const;
     const searchTerm = useSearchStore((s) => s.getSearchTerm(pageKey));
     const layout = useToolbarViewOptionsStore((s) => s.getLayout(pageKey));
     const sortField = useToolbarViewOptionsStore((s) => s.getSortField(pageKey));
     const sortOrder = useToolbarViewOptionsStore((s) => s.getSortOrder(pageKey));
     const filter = useToolbarViewOptionsStore((s) => s.channelFilter);
+    const healthFilter = useToolbarViewOptionsStore((s) => s.channelHealthFilter);
 
     const sortedChannels = useMemo(() => {
         if (!channelsData) return [];
@@ -29,20 +32,77 @@ export function Channel() {
         const term = searchTerm.toLowerCase().trim();
         const byName = !term ? sortedChannels : sortedChannels.filter((c) => c.raw.name.toLowerCase().includes(term));
 
-        if (filter === 'enabled') return byName.filter((c) => c.raw.enabled);
-        if (filter === 'disabled') return byName.filter((c) => !c.raw.enabled);
+        const byEnabled = filter === 'enabled'
+            ? byName.filter((c) => c.raw.enabled)
+            : filter === 'disabled'
+                ? byName.filter((c) => !c.raw.enabled)
+                : byName;
 
-        return byName;
-    }, [sortedChannels, searchTerm, filter]);
+        const byHealth = healthFilter === 'all'
+            ? byEnabled
+            : byEnabled.filter((c) => (c.raw.health ?? 'unknown') === healthFilter);
+
+        return byHealth;
+    }, [sortedChannels, searchTerm, filter, healthFilter]);
+
+    const handleChannelClick = useCallback((channelId: number) => {
+        const selector = `[data-channel-id="${channelId}"]`;
+        const card = document.querySelector(selector);
+
+        if (card) {
+            // Card is already in the DOM (within virtualizer overscan).
+            card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            card.classList.add('ring-2', 'ring-primary', 'ring-offset-2');
+            setTimeout(() => card.classList.remove('ring-2', 'ring-primary', 'ring-offset-2'), 2000);
+            (card as HTMLElement).click();
+            return;
+        }
+
+        // Card is virtualized out of DOM — scroll the virtualizer's container
+        // to the channel's approximate row, wait for it to render, then click.
+        const container = scrollContainerRef.current;
+        if (!container) return;
+
+        const index = visibleChannels.findIndex((c) => c.raw.id === channelId);
+        if (index === -1) return;
+
+        const columnCount = window.innerWidth >= 960 ? 3 : window.innerWidth >= 768 ? 2 : 1;
+        const rowIndex = Math.floor(index / columnCount);
+        const estimatedRowHeight = 216 + 16; // estimateItemHeight + gap
+        const targetScroll = Math.max(0, rowIndex * estimatedRowHeight - container.clientHeight / 3);
+        container.scrollTop = targetScroll;
+
+        // Wait for the virtualizer to render the card, then click it.
+        const waitForCard = (attempts: number) => {
+            const el = document.querySelector(selector);
+            if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                el.classList.add('ring-2', 'ring-primary', 'ring-offset-2');
+                setTimeout(() => el.classList.remove('ring-2', 'ring-primary', 'ring-offset-2'), 2000);
+                (el as HTMLElement).click();
+            } else if (attempts > 0) {
+                requestAnimationFrame(() => waitForCard(attempts - 1));
+            }
+        };
+        // Two frames is enough: one for the scroll event, one for the virtualizer to render.
+        requestAnimationFrame(() => waitForCard(2));
+    }, [visibleChannels]);
 
     return (
-        <VirtualizedGrid
-            items={visibleChannels}
-            layout={layout}
-            columns={{ default: 1, md: 2, lg: 3 }}
-            estimateItemHeight={216}
-            getItemKey={(item) => `channel-${item.raw.id}`}
-            renderItem={(item) => <Card channel={item.raw} stats={item.formatted} layout={layout} />}
-        />
+        <>
+            <ChannelOverview
+                channels={channelsData ?? []}
+                onChannelClick={handleChannelClick}
+            />
+            <VirtualizedGrid
+                scrollContainerRef={scrollContainerRef}
+                items={visibleChannels}
+                layout={layout}
+                columns={{ default: 1, md: 2, lg: 3 }}
+                estimateItemHeight={216}
+                getItemKey={(item) => `channel-${item.raw.id}`}
+                renderItem={(item) => <Card channel={item.raw} stats={item.formatted} layout={layout} />}
+            />
+        </>
     );
 }

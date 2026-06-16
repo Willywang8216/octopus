@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
     Trash2,
     CheckCircle2,
@@ -9,9 +9,24 @@ import {
     Activity,
     TrendingUp,
     Globe,
-    Key
+    Key,
+    PlayCircle,
+    Loader2,
+    StopCircle,
+    ShieldOff,
 } from 'lucide-react';
-import { useUpdateChannel, useDeleteChannel, type Channel, type UpdateChannelRequest } from '@/api/endpoints/channel';
+import {
+    useUpdateChannel,
+    useDeleteChannel,
+    useTestChannel,
+    useCancelChannelTest,
+    useChannelTestResults,
+    useChannelTestProgress,
+    type Channel,
+    type ChannelTestProgress,
+    type DuplicateInfo,
+    type UpdateChannelRequest,
+} from '@/api/endpoints/channel';
 import {
     MorphingDialogTitle,
     MorphingDialogDescription,
@@ -22,21 +37,54 @@ import { Tabs, TabsContents, TabsContent } from '@/components/animate-ui/primiti
 import { type StatsMetricsFormatted } from '@/api/endpoints/stats';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { ChannelForm, type ChannelFormData } from './Form';
 import { formatMoney } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { TestResults, AttentionTag } from './TestResults';
+import { toast } from '@/components/common/Toast';
+import { useSearchStore } from '@/components/modules/toolbar';
 
 export function CardContent({ channel, stats }: { channel: Channel; stats: StatsMetricsFormatted }) {
     const { setIsOpen } = useMorphingDialog();
     const updateChannel = useUpdateChannel();
     const deleteChannel = useDeleteChannel();
+    const testChannel = useTestChannel();
+    const cancelTest = useCancelChannelTest();
+    const cachedTestResults = useChannelTestResults(channel.id);
+    const liveTestProgress = useChannelTestProgress(channel.id);
+    const setSearchTerm = useSearchStore((state) => state.setSearchTerm);
     const [isEditing, setIsEditing] = useState(false);
     const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+    const fallbackProgress: ChannelTestProgress | null = useMemo(() => {
+        if (!testChannel.data?.running) return null;
+        return {
+            channel_id: channel.id,
+            channel_name: channel.name,
+            running: true,
+            phase: 'waiting',
+            current_key_id: 0,
+            current_key: '',
+            current_model: '',
+            total_keys: testChannel.data.total_keys,
+            total_models: testChannel.data.total_models,
+            total_probes: testChannel.data.total_keys * testChannel.data.total_models,
+            completed_probes: 0,
+            success_count: 0,
+            fail_count: 0,
+            started_at: testChannel.data.tested_at || 0,
+            updated_at: 0,
+            finished_at: 0,
+            last_error: '',
+        };
+    }, [testChannel.data, channel.id, channel.name]);
+    const effectiveTestProgress = liveTestProgress.data ?? channel.test_progress ?? fallbackProgress;
     const [formData, setFormData] = useState<ChannelFormData>({
         name: channel.name,
         type: channel.type,
         enabled: channel.enabled,
+        skip_test: channel.skip_test ?? false,
         base_urls: channel.base_urls?.length ? channel.base_urls : [{ url: '', delay: 0 }],
         custom_header: channel.custom_header ?? [],
         channel_proxy: channel.channel_proxy ?? '',
@@ -48,6 +96,9 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                 channel_key: k.channel_key,
                 status_code: k.status_code,
                 last_use_time_stamp: k.last_use_time_stamp,
+                retry_after: k.retry_after,
+                failure_count: k.failure_count,
+                last_error: k.last_error,
                 total_cost: k.total_cost,
                 remark: k.remark,
             }))
@@ -58,8 +109,12 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
         auto_sync: channel.auto_sync,
         auto_group: channel.auto_group,
         match_regex: channel.match_regex ?? '',
+        auto_disable_threshold: channel.auto_disable_threshold != null ? String(channel.auto_disable_threshold) : '',
+        auto_disable_retry_hours: channel.auto_disable_retry_hours != null ? String(channel.auto_disable_retry_hours) : '',
     });
     const t = useTranslations('channel.detail');
+    const tTest = useTranslations('channel.test');
+    const tForm = useTranslations('channel.form');
 
     const currentView = isEditing ? 'editing' : 'viewing';
 
@@ -76,6 +131,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
         if (formData.name !== channel.name) req.name = formData.name;
         if (formData.type !== channel.type) req.type = formData.type;
         if (formData.enabled !== channel.enabled) req.enabled = formData.enabled;
+        if ((formData.skip_test ?? false) !== (channel.skip_test ?? false)) req.skip_test = formData.skip_test;
         if (!baseUrlsEqual(formData.base_urls, channel.base_urls)) {
             req.base_urls = (formData.base_urls ?? []).filter((u) => u.url.trim()).map((u) => ({
                 url: u.url.trim(),
@@ -115,6 +171,18 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
             req.match_regex = nextMatchRegex;
         }
 
+        // Per-channel auto-disable overrides
+        const nextThreshold = formData.auto_disable_threshold ? Number(formData.auto_disable_threshold) : null;
+        const curThreshold = channel.auto_disable_threshold ?? null;
+        if (nextThreshold !== curThreshold) {
+            req.auto_disable_threshold = nextThreshold;
+        }
+        const nextRetry = formData.auto_disable_retry_hours ? Number(formData.auto_disable_retry_hours) : null;
+        const curRetry = channel.auto_disable_retry_hours ?? null;
+        if (nextRetry !== curRetry) {
+            req.auto_disable_retry_hours = nextRetry;
+        }
+
         const originalKeys = channel.keys;
         const originalByID = new Map(originalKeys.map((k) => [k.id, k]));
         const nextKeys = formData.keys ?? [];
@@ -148,6 +216,13 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                 setIsOpen(false);
             }
         });
+    };
+
+    const handleOpenDuplicate = (duplicate: DuplicateInfo) => {
+        setSearchTerm('channel', duplicate.channel_name);
+        setIsEditing(false);
+        setIsOpen(false);
+        toast.info(t('duplicateOpenHint', { name: duplicate.channel_name }));
     };
 
     const handleDeleteClick = () => {
@@ -346,66 +421,222 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                     </div>
                                 </section>
 
+                                {/* Skip testing toggle */}
+                                <div className="flex items-center justify-between rounded-2xl border bg-card p-3 sm:p-4 transition-colors hover:bg-accent/5">
+                                    <div className="flex items-center gap-2">
+                                        <ShieldOff className="size-4 text-muted-foreground" />
+                                        <span className="text-sm text-card-foreground">{tForm('skipTest')}</span>
+                                    </div>
+                                    <Switch
+                                        checked={channel.skip_test ?? false}
+                                        onCheckedChange={(checked) => {
+                                            updateChannel.mutate(
+                                                { id: channel.id, skip_test: checked },
+                                                {
+                                                    onSuccess: () => toast.success(checked ? tForm('skipTest') + ' ✓' : tForm('skipTest') + ' ✗'),
+                                                    onError: (err) => toast.error(err.message),
+                                                }
+                                            );
+                                        }}
+                                        disabled={updateChannel.isPending}
+                                    />
+                                </div>
+
                                 {/* Keys */}
                                 <section className="space-y-3">
-                                    <h4 className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                                        <Key className="size-3.5" />
-                                        {t('sections.keys')}
-                                    </h4>
+                                    <div className="flex items-center justify-between">
+                                        <h4 className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                                            <Key className="size-3.5" />
+                                            {t('sections.keys')}
+                                        </h4>
+                                        <Button
+                                            type="button"
+                                            variant="destructive"
+                                            size="sm"
+                                            onClick={() => cancelTest.mutate(
+                                                { channel_id: channel.id },
+                                                { onSuccess: () => toast.success(tTest('toastCancelled')) }
+                                            )}
+                                            disabled={!effectiveTestProgress?.running || cancelTest.isPending}
+                                            className="h-7 rounded-lg gap-1 text-xs"
+                                        >
+                                            <StopCircle className="size-3.5" />
+                                            {tTest('stopButton')}
+                                        </Button>
+                                    </div>
                                     <div className="rounded-2xl border bg-card overflow-hidden">
-                                        {channel.keys?.map((key) => (
-                                            <div key={key.id} className="flex items-center gap-3 p-3 sm:p-4 border-b last:border-0 hover:bg-accent/5 transition-colors">
-                                                <div className={cn("size-2 shrink-0 rounded-full", key.enabled ? "bg-emerald-500" : "bg-destructive")} />
+                                        {channel.keys?.map((key) => {
+                                            const lastTotal = (key.last_test_success ?? 0) + (key.last_test_failed ?? 0);
+                                            return (
+                                                <div key={key.id} className="flex items-center gap-3 p-3 sm:p-4 border-b last:border-0 hover:bg-accent/5 transition-colors flex-wrap">
+                                                    <div className={cn(
+                                                        "size-2 shrink-0 rounded-full",
+                                                        key.auto_disabled
+                                                            ? "bg-destructive"
+                                                            : key.enabled
+                                                                ? "bg-emerald-500"
+                                                                : "bg-muted-foreground"
+                                                    )} />
 
-                                                <span className="font-mono text-sm truncate min-w-0 flex-1">
-                                                    {key.channel_key.length > 10
-                                                        ? `${key.channel_key.slice(0, 4)}...${key.channel_key.slice(-4)}`
-                                                        : key.channel_key}
-                                                </span>
-
-                                                {key.remark && (
-                                                    <span className="text-xs text-muted-foreground truncate max-w-24" title={key.remark}>
-                                                        {key.remark}
+                                                    <span className="font-mono text-sm truncate min-w-0 flex-1">
+                                                        {key.channel_key.length > 10
+                                                            ? `${key.channel_key.slice(0, 4)}...${key.channel_key.slice(-4)}`
+                                                            : key.channel_key}
                                                     </span>
-                                                )}
 
-                                                <div className="flex items-center gap-2 shrink-0">
-                                                    {key.last_use_time_stamp > 0 && (
-                                                        <span className="text-xs text-muted-foreground whitespace-nowrap hidden sm:inline-block">
-                                                            {new Date(key.last_use_time_stamp * 1000).toLocaleString()}
+                                                    {key.remark && (
+                                                        <span className="text-xs text-muted-foreground truncate max-w-24" title={key.remark}>
+                                                            {key.remark}
                                                         </span>
                                                     )}
 
-                                                    {key.status_code !== 0 && (
-                                                        <Badge
-                                                            variant="secondary"
-                                                            className={cn(
-                                                                "h-5 px-1.5 text-[10px]",
-                                                                key.status_code === 200
-                                                                    ? "bg-green-500/15 text-green-700 dark:text-green-400"
-                                                                    : key.status_code === 401 ||
-                                                                        key.status_code === 403 ||
-                                                                        key.status_code === 429 ||
-                                                                        key.status_code >= 500
-                                                                        ? "bg-red-500/15 text-red-700 dark:text-red-400"
-                                                                        : "bg-orange-500/15 text-orange-700 dark:text-orange-400"
-                                                            )}
-                                                        >
-                                                            {key.status_code}
-                                                        </Badge>
-                                                    )}
+                                                    <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                                                        {key.auto_disabled && (
+                                                            <AttentionTag cls={key.disabled_class} reason={key.disabled_reason} />
+                                                        )}
+                                                        {lastTotal > 0 && (
+                                                            <Badge
+                                                                variant="secondary"
+                                                                className={cn(
+                                                                    "h-5 px-1.5 text-[10px]",
+                                                                    (key.last_test_failed ?? 0) === 0
+                                                                        ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                                                                        : (key.last_test_success ?? 0) === 0
+                                                                            ? "bg-red-500/15 text-red-700 dark:text-red-400"
+                                                                            : "bg-orange-500/15 text-orange-700 dark:text-orange-400"
+                                                                )}
+                                                                title={tTest('keyResultTooltip', {
+                                                                    pass: key.last_test_success ?? 0,
+                                                                    total: lastTotal,
+                                                                })}
+                                                            >
+                                                                {key.last_test_success ?? 0}/{lastTotal}
+                                                            </Badge>
+                                                        )}
+                                                        {key.last_use_time_stamp > 0 && (
+                                                            <span className="text-xs text-muted-foreground whitespace-nowrap hidden sm:inline-block">
+                                                                {new Date(key.last_use_time_stamp * 1000).toLocaleString()}
+                                                            </span>
+                                                        )}
 
-                                                    <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
-                                                        {formatMoney(key.total_cost).formatted.value}
-                                                        {formatMoney(key.total_cost).formatted.unit}
-                                                    </Badge>
+                                                        {key.status_code !== 0 && (
+                                                            <Badge
+                                                                variant="secondary"
+                                                                className={cn(
+                                                                    "h-5 px-1.5 text-[10px]",
+                                                                    key.status_code === 200
+                                                                        ? "bg-green-500/15 text-green-700 dark:text-green-400"
+                                                                        : key.status_code === 401 ||
+                                                                            key.status_code === 403 ||
+                                                                            key.status_code === 429 ||
+                                                                            key.status_code >= 500
+                                                                            ? "bg-red-500/15 text-red-700 dark:text-red-400"
+                                                                            : "bg-orange-500/15 text-orange-700 dark:text-orange-400"
+                                                                )}
+                                                            >
+                                                                {key.status_code}
+                                                            </Badge>
+                                                        )}
+
+                                                        <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+                                                            {formatMoney(key.total_cost).formatted.value}
+                                                            {formatMoney(key.total_cost).formatted.unit}
+                                                        </Badge>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        ))}
+                                            );
+                                        })}
                                         {(!channel.keys || channel.keys.length === 0) && (
                                             <div className="p-4 text-sm text-muted-foreground text-center">{t('noKeys')}</div>
                                         )}
                                     </div>
+                                </section>
+
+                                {/* Channel auto-disabled banner — make it impossible to miss */}
+                                {channel.auto_disabled && (
+                                    <section className="rounded-2xl border border-red-500/30 bg-red-500/5 p-3 flex items-start gap-3">
+                                        <PlayCircle className="size-4 shrink-0 text-red-600 dark:text-red-400 mt-0.5" />
+                                        <div className="flex-1 min-w-0">
+                                            <div className="text-sm font-semibold text-red-700 dark:text-red-300">
+                                                {tTest('channelDisabledTitle')}
+                                            </div>
+                                            <div className="text-xs text-red-700/80 dark:text-red-400/80 mt-0.5">
+                                                {tTest('channelDisabledHint')}
+                                            </div>
+                                        </div>
+                                        <AttentionTag cls={channel.disabled_class} reason={channel.disabled_reason} />
+                                    </section>
+                                )}
+
+                                {/* Probe matrix: per-key, per-model success/fail with reasons */}
+                                <section className="space-y-3">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <h4 className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                                            <Activity className="size-3.5" />
+                                            {tTest('sectionTitle')}
+                                        </h4>
+                                        <div className="flex items-center gap-1.5">
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="destructive"
+                                                onClick={() => cancelTest.mutate(
+                                                    { channel_id: channel.id },
+                                                    { onSuccess: () => toast.success(tTest('toastCancelled')) }
+                                                )}
+                                                disabled={!effectiveTestProgress?.running || cancelTest.isPending}
+                                                className="h-7 rounded-xl"
+                                            >
+                                                <StopCircle className="size-3.5" />
+                                                {tTest('stopButton')}
+                                            </Button>
+                                            <Button
+                                                type="button"
+                                                size="sm"
+                                                variant="secondary"
+                                                disabled={testChannel.isPending || !!effectiveTestProgress?.running}
+                                                onClick={() => {
+                                                    testChannel.mutate(
+                                                        { id: channel.id, include_disabled_keys: true },
+                                                        {
+                                                            onSuccess: (s) => {
+                                                                if (s.running) {
+                                                                    toast.success(tTest('running'));
+                                                                    return;
+                                                                }
+                                                                toast.success(
+                                                                    tTest('toastDone', {
+                                                                        pass: s.success_count,
+                                                                        total: s.total_probes,
+                                                                    })
+                                                                );
+                                                            },
+                                                            onError: (err) => toast.error(err.message),
+                                                        }
+                                                    );
+                                                }}
+                                                className="h-7 rounded-xl"
+                                            >
+                                                {testChannel.isPending ? (
+                                                    <>
+                                                        <Loader2 className="size-3.5 animate-spin" />
+                                                        {tTest('running')}
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <PlayCircle className="size-3.5" />
+                                                        {tTest('runButton')}
+                                                    </>
+                                                )}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                    <TestResults
+                                        channel={channel}
+                                        summary={cachedTestResults.data ?? testChannel.data ?? null}
+                                        isPending={testChannel.isPending || cachedTestResults.isLoading}
+                                        progress={effectiveTestProgress}
+                                    />
                                 </section>
 
                                 {/* 等待时间 */}
@@ -457,6 +688,8 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
                                 onCancel={() => setIsEditing(false)}
                                 cancelText={t('actions.cancel')}
                                 idPrefix="channel"
+                                excludeChannelId={channel.id}
+                                onDuplicateNavigate={handleOpenDuplicate}
                             />
                         </TabsContent>
                     </TabsContents>

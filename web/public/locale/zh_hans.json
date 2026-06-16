@@ -53,6 +53,7 @@
         "setting": "设置"
     },
     "toolbar": {
+        "testAllAriaLabel": "测试所有渠道",
         "popover": {
             "ariaLabel": "视图选项",
             "layout": "布局",
@@ -70,7 +71,8 @@
                 "channel": {
                     "all": "全部渠道",
                     "enabled": "仅启用",
-                    "disabled": "仅禁用"
+                    "disabled": "仅禁用",
+                    "fundingIssue": "资金问题"
                 },
                 "group": {
                     "all": "全部分组",
@@ -81,8 +83,22 @@
                     "all": "全部模型",
                     "priced": "仅收费",
                     "free": "仅免费"
+                },
+                "health": {
+                    "title": "健康度",
+                    "all": "全部",
+                    "alive": "正常",
+                    "flaky": "不稳定",
+                    "zombie": "僵尸",
+                    "dead": "已死",
+                    "unknown": "未知"
                 }
             }
+        },
+        "channel": {
+            "testAll": "测试所有渠道",
+            "testAllSuccess": "所有渠道测试完成",
+            "testAllFailed": "渠道测试失败"
         }
     },
     "common": {
@@ -181,6 +197,10 @@
             "maxCooldown": {
                 "label": "最大冷却时间（秒）",
                 "placeholder": "请输入最大冷却时间"
+            },
+            "autoDisableRetryDays": {
+                "label": "自动禁用后重试间隔（天）",
+                "placeholder": "请输入天数"
             },
             "hint": "当渠道连续失败达到阈值后触发熔断，冷却时间按指数退避增长，上限为最大冷却时间"
         },
@@ -337,6 +357,18 @@
             },
             "clearSuccess": "日志已清空",
             "clearFailed": "清空失败"
+        },
+        "channelHealth": {
+            "title": "渠道健康检查",
+            "hint": "定期重新测试自动禁用的渠道和 Key。间隔设为 0 可关闭定时重测。",
+            "interval": {
+                "label": "重测间隔（分钟）",
+                "placeholder": "0 = 关闭"
+            },
+            "timeout": {
+                "label": "单次探测超时（秒）",
+                "placeholder": "20"
+            }
         }
     },
     "group": {
@@ -351,12 +383,25 @@
         "create": {
             "title": "创建分组",
             "submit": "创建",
-            "submitting": "创建中..."
+            "submitting": "创建中...",
+            "duplicateOpenHint": "正在显示已有渠道：{name}",
+            "combineSuccess": "已合并到 {name}",
+            "combineFailed": "合并渠道失败"
+        },
+        "preset": {
+            "title": "编码器预设",
+            "modelPlaceholder": "兼容模型，例如 agentic-coder",
+            "create": "创建 Claude Code 和 Codex 分组",
+            "creating": "创建中...",
+            "hint": "创建 anthropic-claude-code 和 openai-codex 分组，并指向你选择的兼容模型。",
+            "success": "编码器预设分组已创建",
+            "failed": "创建编码器预设分组失败"
         },
         "card": {
             "empty": "暂无规则"
         },
         "detail": {
+            "duplicateOpenHint": "正在显示已有渠道：{name}",
             "actions": {
                 "edit": "编辑",
                 "cancel": "取消",
@@ -388,7 +433,13 @@
             "failover": "故障转移",
             "weighted": "加权分配"
         },
-        "empty": "暂无分组，点击左上角按钮创建"
+        "empty": "暂无分组，点击左上角按钮创建",
+        "createAgentic": {
+            "button": "创建代码编程分组",
+            "creating": "创建中...",
+            "success": "代码编程分组创建成功",
+            "failed": "创建代码编程分组失败"
+        }
     },
     "model": {
         "create": {
@@ -449,15 +500,99 @@
         }
     },
     "channel": {
+        "health": {
+            "alive": "正常",
+            "flaky": "不稳定",
+            "zombie": "僵尸",
+            "dead": "已死",
+            "unknown": "未知"
+        },
+        "overview": {
+            "title": "渠道概览",
+            "name": "名称",
+            "type": "类型",
+            "keys": "密钥",
+            "models": "模型",
+            "testResult": "测试结果",
+            "error": "错误",
+            "status": "状态",
+            "action": "操作",
+            "stopAll": "停止全部",
+            "stopChannel": "停止",
+            "noChannels": "暂无渠道"
+        },
         "card": {
             "requestCount": "请求次数",
             "totalCost": "总成本",
+            "enabledShort": "启用",
+            "autoDisabledShort": "自动禁用",
+            "skipTest": "跳过测试",
             "toast": {
                 "enabled": "渠道已启用",
                 "disabled": "渠道已禁用"
             }
         },
+        "test": {
+            "sectionTitle": "测试结果",
+            "runButton": "测试渠道",
+            "running": "测试中...",
+            "passing": "通过",
+            "keys": "Key",
+            "models": "模型",
+            "lastTested": "最近测试",
+            "emptyHint": "点击「测试模型」对每个 (Key × 模型) 组合发起探测，失败原因会与上游返回一致。",
+            "noModelsTested": "此 Key 暂无测试结果",
+            "noKeysTested": "尚未测试任何 Key",
+            "channelDisabledTitle": "渠道已自动禁用 — 需要关注",
+            "channelDisabledHint": "上次探测时此渠道的所有 Key 均失败。下次定时健康检查会自动重试，您也可以切换开关手动覆盖。",
+            "toastDone": "测试完成 — {pass}/{total} 个模型通过",
+            "toastDoneAll": "已测试 {channels} 个渠道 — {pass}/{total} 个模型通过",
+            "keyResultTooltip": "此 Key 上 {pass}/{total} 个模型通过",
+            "errorClass": {
+                "auth_invalid": "API Key 无效",
+                "permission_denied": "权限被拒",
+                "insufficient_quota": "余额/配额不足",
+                "rate_limited": "限流",
+                "model_not_found": "模型不存在",
+                "bad_request": "请求错误",
+                "server_error": "上游 5xx",
+                "network_error": "网络错误",
+                "timeout": "超时",
+                "transform_error": "本地错误",
+                "unsupported_channel": "不支持的渠道类型",
+                "other": "失败"
+            },
+            "toastStartedAll": "已在后台开始测试 {total} 个渠道",
+            "toastDoneAllChannels": "渠道测试完成 — 已检查 {completed}/{total} 个渠道，失败 {failed} 个",
+            "stopButton": "停止测试",
+            "toastCancelled": "测试已取消",
+            "toastCancelledAll": "所有测试已取消",
+            "rawLog": "原始日志",
+            "progressAll": "渠道测试中：{completed}/{total}",
+            "progress": {
+                "running": "测试进行中",
+                "waiting": "等待中",
+                "saving": "正在保存结果",
+                "done": "测试完成",
+                "failed": "测试失败",
+                "key": "当前 Key",
+                "model": "当前模型",
+                "passed": "成功",
+                "failedCount": "失败",
+                "testingKeyModel": "正在用此 Key 测试 {model}"
+            }
+        },
         "detail": {
+            "test": {
+                "testAll": "测试所有模型",
+                "testing": "测试中…",
+                "toastSuccess": "渠道测试完成",
+                "toastFailed": "渠道测试失败",
+                "ok": "通过",
+                "lastError": "最近错误",
+                "unknownError": "未知错误",
+                "latency": "延迟"
+            },
             "title": {
                 "edit": "编辑渠道",
                 "view": "渠道详情"
@@ -467,7 +602,8 @@
                 "tokens": "Token 使用",
                 "costs": "成本详情",
                 "baseUrls": "Base URLs",
-                "keys": "密钥"
+                "keys": "密钥",
+                "modelTestResults": "模型测试结果"
             },
             "noBaseUrls": "暂无 Base URL",
             "noKeys": "暂无密钥",
@@ -490,7 +626,16 @@
                 "saving": "保存中...",
                 "delete": "删除",
                 "confirmDelete": "确认删除",
-                "deleting": "删除中..."
+                "deleting": "删除中...",
+                "checkModels": "检查模型",
+                "checkingModels": "检查中...",
+                "checkModelsSuccess": "已触发模型检查",
+                "testModel": "测试",
+                "testingModel": "测试中...",
+                "modelAvailable": "模型可用",
+                "modelUnavailable": "模型不可用",
+                "testAllModels": "测试模型",
+                "testingAllModels": "测试中..."
             }
         },
         "create": {
@@ -534,6 +679,7 @@
             "typeGemini": "Gemini",
             "typeVolcengine": "火山引擎",
             "autoSync": "自动同步",
+            "skipTest": "跳过测试",
             "autoGroup": "自动分组",
             "autoGroupNone": "不自动分组",
             "autoGroupFuzzy": "模糊匹配",
@@ -541,7 +687,43 @@
             "autoGroupRegex": "正则匹配",
             "matchRegex": "匹配正则",
             "matchRegexPlaceholder": "可选：用于匹配请求模型名称的正则表达式",
-            "remark": "备注"
+            "remark": "备注",
+            "duplicateError": "已存在使用相同 API 端点和密钥的渠道",
+            "duplicateWarningTitle": "检测到可能重复的渠道",
+            "dupMatchEndpointAndKey": "相同端点和密钥",
+            "dupMatchEndpoint": "相同端点",
+            "dupMatchKey": "相同密钥",
+            "duplicateBlocked": "该端点或 API Key 已存在。请先打开或合并到重复渠道。",
+            "openDuplicate": "打开",
+            "combineDuplicate": "合并",
+            "combiningDuplicate": "合并中...",
+            "resolveDuplicateFirst": "先处理重复渠道",
+            "autoDisableTitle": "自动禁用",
+            "autoDisableHint": "覆盖全局设置。留空使用全局默认值。",
+            "autoDisableThreshold": "失败阈值",
+            "autoDisableThresholdPlaceholder": "全局默认",
+            "autoDisableRetryHours": "重试间隔（小时）",
+            "autoDisableRetryPlaceholder": "全局默认"
         }
+    },
+    "autoDisable": {
+        "title": "自动禁用",
+        "threshold": {
+            "label": "失败阈值（连续失败次数）",
+            "placeholder": "输入阈值"
+        },
+        "retryHours": {
+            "label": "重试间隔（小时）",
+            "placeholder": "输入小时数"
+        },
+        "hint": "密钥在连续失败后自动禁用。当渠道所有密钥都被禁用时，渠道自动禁用，并在配置的时间后重试"
+    },
+    "modelCheck": {
+        "title": "模型可用性",
+        "interval": {
+            "label": "检查间隔（小时）",
+            "placeholder": "输入小时数"
+        },
+        "hint": "定期检查自动同步渠道的模型列表是否最新"
     }
 }

@@ -11,6 +11,7 @@ import { SettingLLMSync } from './LLMSync';
 import { SettingLog } from './Log';
 import { SettingBackup } from './Backup';
 import { SettingCircuitBreaker } from './CircuitBreaker';
+import { SettingChannelHealth } from './ChannelHealth';
 
 export function Setting() {
     return (
@@ -24,6 +25,7 @@ export function Setting() {
                 <SettingLLMPrice key="setting-llmprice" />
                 <SettingAPIKey key="setting-apikey" />
                 <SettingLLMSync key="setting-llmsync" />
+                <SettingChannelHealth key="setting-channel-health" />
                 <SettingCircuitBreaker key="setting-circuit-breaker" />
                 <SettingBackup key="setting-backup" />
             </PageWrapper>

@@ -7,10 +7,28 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"time"
 
 	"github.com/bestruirui/octopus/internal/model"
 	"github.com/bestruirui/octopus/internal/op"
 	"golang.org/x/net/proxy"
+)
+
+// HTTP transport tuning. These bound the *connection* lifecycle (dial, TLS,
+// header read) so a hung origin can't pin a goroutine forever.
+//
+// Deliberately NOT setting http.Client.Timeout — that field cancels the
+// entire request including streaming bodies, which would cut SSE responses
+// off mid-stream. Per-attempt total cancellation is enforced in the relay
+// layer (relay.forward) only for non-streaming requests.
+const (
+	dialTimeout           = 10 * time.Second
+	tlsHandshakeTimeout   = 10 * time.Second
+	responseHeaderTimeout = 30 * time.Second
+	expectContinueTimeout = 2 * time.Second
+	idleConnTimeout       = 90 * time.Second
+	maxIdleConns          = 200
+	maxIdleConnsPerHost   = 50
 )
 
 var (
@@ -87,25 +105,40 @@ func GetHTTPClientCustomProxy(proxyURL string) (*http.Client, error) {
 	return newHTTPClientCustomProxy(proxyURL)
 }
 
-func clonedDefaultTransport() (*http.Transport, error) {
+// tunedTransport returns a freshly-cloned *http.Transport with sensible
+// timeouts and connection-pool settings applied. Callers may further
+// customise (Proxy, DialContext, etc.).
+func tunedTransport() (*http.Transport, error) {
 	transport, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
 		return nil, fmt.Errorf("default transport is not *http.Transport")
 	}
-	return transport.Clone(), nil
+	cloned := transport.Clone()
+	cloned.DialContext = (&net.Dialer{
+		Timeout:   dialTimeout,
+		KeepAlive: 30 * time.Second,
+	}).DialContext
+	cloned.TLSHandshakeTimeout = tlsHandshakeTimeout
+	cloned.ResponseHeaderTimeout = responseHeaderTimeout
+	cloned.ExpectContinueTimeout = expectContinueTimeout
+	cloned.IdleConnTimeout = idleConnTimeout
+	cloned.MaxIdleConns = maxIdleConns
+	cloned.MaxIdleConnsPerHost = maxIdleConnsPerHost
+	cloned.ForceAttemptHTTP2 = true
+	return cloned, nil
 }
 
 func newHTTPClientNoProxy() (*http.Client, error) {
-	cloned, err := clonedDefaultTransport()
+	cloned, err := tunedTransport()
 	if err != nil {
 		return nil, err
 	}
 	cloned.Proxy = nil
-	return &http.Client{Transport: cloned}, nil
+	return &http.Client{Transport: wrapWithHostConcurrencyLimit(cloned)}, nil
 }
 
 func newHTTPClientCustomProxy(proxyURLStr string) (*http.Client, error) {
-	cloned, err := clonedDefaultTransport()
+	cloned, err := tunedTransport()
 	if err != nil {
 		return nil, err
 	}
@@ -131,5 +164,5 @@ func newHTTPClientCustomProxy(proxyURLStr string) (*http.Client, error) {
 		return nil, fmt.Errorf("unsupported proxy scheme: %s", proxyURL.Scheme)
 	}
 
-	return &http.Client{Transport: cloned}, nil
+	return &http.Client{Transport: wrapWithHostConcurrencyLimit(cloned)}, nil
 }

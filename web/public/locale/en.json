@@ -53,6 +53,7 @@
         "setting": "Setting"
     },
     "toolbar": {
+        "testAllAriaLabel": "Test all channels",
         "popover": {
             "ariaLabel": "View options",
             "layout": "Layout",
@@ -70,7 +71,8 @@
                 "channel": {
                     "all": "All channels",
                     "enabled": "Enabled only",
-                    "disabled": "Disabled only"
+                    "disabled": "Disabled only",
+                    "fundingIssue": "Funding issues"
                 },
                 "group": {
                     "all": "All groups",
@@ -81,8 +83,22 @@
                     "all": "All models",
                     "priced": "Priced only",
                     "free": "Free only"
+                },
+                "health": {
+                    "title": "Health",
+                    "all": "All",
+                    "alive": "Alive",
+                    "flaky": "Flaky",
+                    "zombie": "Zombie",
+                    "dead": "Dead",
+                    "unknown": "Unknown"
                 }
             }
+        },
+        "channel": {
+            "testAll": "Test all channels",
+            "testAllSuccess": "All channel probes finished",
+            "testAllFailed": "Channel probes failed"
         }
     },
     "common": {
@@ -181,6 +197,10 @@
             "maxCooldown": {
                 "label": "Max Cooldown (seconds)",
                 "placeholder": "Enter max cooldown in seconds"
+            },
+            "autoDisableRetryDays": {
+                "label": "Auto-disabled retry interval (days)",
+                "placeholder": "Enter days"
             },
             "hint": "When a channel fails consecutively up to the threshold, circuit breaker trips. Cooldown grows exponentially up to the max cooldown"
         },
@@ -337,6 +357,18 @@
             },
             "clearSuccess": "Logs cleared",
             "clearFailed": "Failed to clear logs"
+        },
+        "channelHealth": {
+            "title": "Channel health checks",
+            "hint": "Periodically retests auto-disabled channels and keys. Set interval to 0 to disable scheduled retesting.",
+            "interval": {
+                "label": "Retest interval (minutes)",
+                "placeholder": "0 = disabled"
+            },
+            "timeout": {
+                "label": "Probe timeout (seconds)",
+                "placeholder": "20"
+            }
         }
     },
     "group": {
@@ -351,12 +383,25 @@
         "create": {
             "title": "Create Group",
             "submit": "Create",
-            "submitting": "Creating..."
+            "submitting": "Creating...",
+            "duplicateOpenHint": "Showing existing channel: {name}",
+            "combineSuccess": "Merged into {name}",
+            "combineFailed": "Failed to merge channel"
+        },
+        "preset": {
+            "title": "Coder presets",
+            "modelPlaceholder": "Compatible model, e.g. agentic-coder",
+            "create": "Create Claude Code and Codex groups",
+            "creating": "Creating...",
+            "hint": "Creates anthropic-claude-code and openai-codex groups pointing to the compatible model you choose.",
+            "success": "Coder preset groups created",
+            "failed": "Failed to create coder preset groups"
         },
         "card": {
             "empty": "No rules"
         },
         "detail": {
+            "duplicateOpenHint": "Showing existing channel: {name}",
             "actions": {
                 "edit": "Edit",
                 "cancel": "Cancel",
@@ -388,7 +433,13 @@
             "failover": "Failover",
             "weighted": "Weighted"
         },
-        "empty": "No groups yet, click the button above to create one"
+        "empty": "No groups yet, click the button above to create one",
+        "createAgentic": {
+            "button": "Create Agentic Groups",
+            "creating": "Creating...",
+            "success": "Agentic coding groups created",
+            "failed": "Failed to create agentic groups"
+        }
     },
     "model": {
         "create": {
@@ -449,15 +500,99 @@
         }
     },
     "channel": {
+        "health": {
+            "alive": "Alive",
+            "flaky": "Flaky",
+            "zombie": "Zombie",
+            "dead": "Dead",
+            "unknown": "Unknown"
+        },
+        "overview": {
+            "title": "Channel Overview",
+            "name": "Name",
+            "type": "Type",
+            "keys": "Keys",
+            "models": "Models",
+            "testResult": "Test Result",
+            "error": "Error",
+            "status": "Status",
+            "action": "Action",
+            "stopAll": "Stop All",
+            "stopChannel": "Stop",
+            "noChannels": "No channels configured"
+        },
         "card": {
             "requestCount": "Requests",
             "totalCost": "Total Cost",
+            "enabledShort": "enabled",
+            "autoDisabledShort": "auto-disabled",
+            "skipTest": "Skip Testing",
             "toast": {
                 "enabled": "Channel enabled",
                 "disabled": "Channel disabled"
             }
         },
+        "test": {
+            "sectionTitle": "Test Results",
+            "runButton": "Test Channel",
+            "running": "Testing...",
+            "passing": "passing",
+            "keys": "keys",
+            "models": "models",
+            "lastTested": "Last tested",
+            "emptyHint": "Click \"Test models\" to probe every (key × model) combination. Failures are shown with the upstream provider's reason.",
+            "noModelsTested": "No models tested for this key yet",
+            "noKeysTested": "No keys tested yet",
+            "channelDisabledTitle": "Channel auto-disabled — attention needed",
+            "channelDisabledHint": "Every key on this channel failed the last probe. The next scheduled health check will retry automatically. Toggle the channel switch to override.",
+            "toastDone": "Test done — {pass}/{total} models passing",
+            "toastDoneAll": "Tested {channels} channels — {pass}/{total} models passing",
+            "keyResultTooltip": "{pass}/{total} models passing on this key",
+            "errorClass": {
+                "auth_invalid": "Invalid API key",
+                "permission_denied": "Permission denied",
+                "insufficient_quota": "Insufficient quota / billing",
+                "rate_limited": "Rate limited",
+                "model_not_found": "Model not found",
+                "bad_request": "Bad request",
+                "server_error": "Provider 5xx",
+                "network_error": "Network error",
+                "timeout": "Timeout",
+                "transform_error": "Local error",
+                "unsupported_channel": "Unsupported channel type",
+                "other": "Failed"
+            },
+            "toastStartedAll": "Started testing {total} channels in the background",
+            "toastDoneAllChannels": "Channel testing finished — {completed}/{total} channels checked, {failed} failed",
+            "stopButton": "Stop Testing",
+            "toastCancelled": "Test cancelled",
+            "toastCancelledAll": "All tests cancelled",
+            "rawLog": "Raw Log",
+            "progressAll": "Testing channels: {completed}/{total}",
+            "progress": {
+                "running": "Testing in progress",
+                "waiting": "Waiting",
+                "saving": "Saving results",
+                "done": "Testing finished",
+                "failed": "Testing failed",
+                "key": "Current key",
+                "model": "Current model",
+                "passed": "Passed",
+                "failedCount": "Failed",
+                "testingKeyModel": "Testing current key against {model}"
+            }
+        },
         "detail": {
+            "test": {
+                "testAll": "Test all models",
+                "testing": "Testing…",
+                "toastSuccess": "Channel probe finished",
+                "toastFailed": "Channel probe failed",
+                "ok": "OK",
+                "lastError": "Last error",
+                "unknownError": "Unknown error",
+                "latency": "Latency"
+            },
             "title": {
                 "edit": "Edit Channel",
                 "view": "Channel Details"
@@ -467,7 +602,8 @@
                 "tokens": "Token Usage",
                 "costs": "Cost Details",
                 "baseUrls": "Base URLs",
-                "keys": "Keys"
+                "keys": "Keys",
+                "modelTestResults": "Model Test Results"
             },
             "noBaseUrls": "No Base URLs",
             "noKeys": "No Keys",
@@ -490,7 +626,16 @@
                 "saving": "Saving...",
                 "delete": "Delete",
                 "confirmDelete": "Confirm Delete",
-                "deleting": "Deleting..."
+                "deleting": "Deleting...",
+                "checkModels": "Check Models",
+                "checkingModels": "Checking...",
+                "checkModelsSuccess": "Model check triggered",
+                "testModel": "Test",
+                "testingModel": "Testing...",
+                "modelAvailable": "Model is available",
+                "modelUnavailable": "Model is unavailable",
+                "testAllModels": "Test Models",
+                "testingAllModels": "Testing..."
             }
         },
         "create": {
@@ -534,6 +679,7 @@
             "typeGemini": "Gemini",
             "typeVolcengine": "Volcengine",
             "autoSync": "Auto Sync",
+            "skipTest": "Skip Testing",
             "autoGroup": "Auto Group",
             "autoGroupNone": "None",
             "autoGroupFuzzy": "Fuzzy",
@@ -541,7 +687,43 @@
             "autoGroupRegex": "Regex",
             "matchRegex": "Match Regex",
             "matchRegexPlaceholder": "Optional: regex pattern to match request model names",
-            "remark": "Remark"
+            "remark": "Remark",
+            "duplicateError": "A channel with the same API endpoint and key already exists",
+            "duplicateWarningTitle": "Possible duplicate channels detected",
+            "dupMatchEndpointAndKey": "same endpoint and key",
+            "dupMatchEndpoint": "same endpoint",
+            "dupMatchKey": "same key",
+            "duplicateBlocked": "This endpoint or API key already exists. Open or combine with the duplicate channel first.",
+            "openDuplicate": "Open",
+            "combineDuplicate": "Combine",
+            "combiningDuplicate": "Combining...",
+            "resolveDuplicateFirst": "Resolve duplicate first",
+            "autoDisableTitle": "Auto Disable",
+            "autoDisableHint": "Override global settings for this channel. Leave empty to use global defaults.",
+            "autoDisableThreshold": "Failure threshold",
+            "autoDisableThresholdPlaceholder": "Global default",
+            "autoDisableRetryHours": "Retry after (hours)",
+            "autoDisableRetryPlaceholder": "Global default"
         }
+    },
+    "autoDisable": {
+        "title": "Auto Disable",
+        "threshold": {
+            "label": "Failure Threshold (consecutive failures to disable key)",
+            "placeholder": "Enter threshold"
+        },
+        "retryHours": {
+            "label": "Retry After (hours)",
+            "placeholder": "Enter hours"
+        },
+        "hint": "Keys are auto-disabled after consecutive failures. When all keys in a channel are disabled, the channel is auto-disabled and retried after the configured period"
+    },
+    "modelCheck": {
+        "title": "Model Availability",
+        "interval": {
+            "label": "Check Interval (hours)",
+            "placeholder": "Enter hours"
+        },
+        "hint": "Periodically checks if the model list for each auto-sync channel is up to date"
     }
 }

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"crypto/rand"
+	"fmt"
 	"math/big"
 	"time"
 
@@ -25,8 +26,12 @@ func GenerateJWTToken(expiresMin int) (string, string, error) {
 		claims.ExpiresAt = jwt.NewNumericDate(now.Add(time.Duration(30) * 24 * time.Hour))
 	}
 	user := op.UserGet()
-	secret := user.Username + user.Password
-	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(secret))
+	claims.Subject = user.Username
+	secret, err := op.JWTSecret()
+	if err != nil {
+		return "", "", err
+	}
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(secret)
 	if err != nil {
 		return "", "", err
 	}
@@ -35,10 +40,12 @@ func GenerateJWTToken(expiresMin int) (string, string, error) {
 
 func VerifyJWTToken(token string) bool {
 	jwtToken, err := jwt.Parse(token, func(token *jwt.Token) (interface{}, error) {
-		user := op.UserGet()
-		secret := user.Username + user.Password
-		return []byte(secret), nil
-	})
+		// Reject any token claiming a non-HS256 algorithm (e.g. "none", RS256).
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return op.JWTSecret()
+	}, jwt.WithValidMethods([]string{"HS256"}))
 	if err != nil || !jwtToken.Valid {
 		return false
 	}

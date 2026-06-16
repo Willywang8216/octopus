@@ -1,0 +1,809 @@
+diff --git a/internal/server/handlers/channel.go b/internal/server/handlers/channel.go
+index 92bb3dd..3fc1b48 100644
+--- a/internal/server/handlers/channel.go
++++ b/internal/server/handlers/channel.go
+@@ -47,6 +47,10 @@ func init() {
+ 			router.NewRoute("/fetch-model", http.MethodPost).
+ 				Handle(fetchModel),
+ 		).
++		AddRoute(
++			router.NewRoute("/check-duplicate", http.MethodPost).
++				Handle(checkDuplicateChannel),
++		).
+ 		AddRoute(
+ 			router.NewRoute("/test", http.MethodPost).
+ 				Handle(testChannel),
+@@ -220,6 +224,19 @@ func fetchModel(c *gin.Context) {
+ 	resp.Success(c, models)
+ }
+ 
++func checkDuplicateChannel(c *gin.Context) {
++	var request struct {
++		BaseUrls  []model.BaseUrl `json:"base_urls"`
++		Keys      []string        `json:"keys"`
++		ExcludeID int             `json:"exclude_id"`
++	}
++	if err := c.ShouldBindJSON(&request); err != nil {
++		resp.Error(c, http.StatusBadRequest, resp.ErrInvalidJSON)
++		return
++	}
++	resp.Success(c, op.ChannelFindDuplicates(request.BaseUrls, request.Keys, request.ExcludeID))
++}
++
+ func syncChannel(c *gin.Context) {
+ 	task.SyncModelsTask()
+ 	resp.Success(c, nil)
+diff --git a/web/src/api/endpoints/channel.ts b/web/src/api/endpoints/channel.ts
+index 5459f11..368286a 100644
+--- a/web/src/api/endpoints/channel.ts
++++ b/web/src/api/endpoints/channel.ts
+@@ -8,22 +8,8 @@ import { StatsChannel, type StatsMetricsFormatted } from './stats';
+  * 渠道健康度
+  */
+ export type ChannelHealth = 'alive' | 'flaky' | 'zombie' | 'dead' | 'unknown';
+-export type ChannelErrorClass = '' | 'network' | 'auth_or_quota' | 'upstream_error' | 'other';
+ 
+-export type ChannelKeyModelStatus = {
+-    id: number;
+-    channel_id: number;
+-    key_id: number;
+-    model_name: string;
+-    ok: boolean;
+-    status_code: number;
+-    latency_ms: number;
+-    last_error: string;
+-    error_class: ChannelErrorClass;
+-    last_tested_at: number; // unix seconds
+-};
+-
+-export type ChannelTestSummary = {
++export type ChannelHealthSummary = {
+     total: number;
+     ok: number;
+     failed: number;
+@@ -31,13 +17,16 @@ export type ChannelTestSummary = {
+     health: ChannelHealth;
+ };
+ 
+-export type ChannelTestResponse = {
+-    summary: ChannelTestSummary;
+-    results: ChannelKeyModelStatus[];
++export type DuplicateInfo = {
++    channel_id: number;
++    channel_name: string;
++    match_type: 'endpoint_and_key' | 'endpoint' | 'key';
+ };
+ 
+-export type ChannelTestAllResponse = {
+-    results: Record<string, ChannelTestResponse>;
++export type CheckDuplicateRequest = {
++    base_urls: BaseUrl[];
++    keys: string[];
++    exclude_id?: number;
+ };
+ 
+ /**
+@@ -119,8 +108,10 @@ export type Channel = {
+     name: string;
+     type: ChannelType;
+     enabled: boolean;
+-    tags: string[];
++    tags?: string[];
+     retry_after: number;
++    auto_disable_threshold?: number | null;
++    auto_disable_retry_hours?: number | null;
+     base_urls: BaseUrl[];
+     keys: ChannelKey[];
+     model: string;
+@@ -138,6 +129,8 @@ export type Channel = {
+     disabled_class?: ChannelTestErrorClass;
+     disabled_at?: number;
+     last_test_at?: number;
++    health?: ChannelHealth;
++    test_summary?: ChannelHealthSummary | null;
+ };
+ 
+ /**
+@@ -203,8 +196,9 @@ type ChannelServer = Omit<Channel, 'base_urls' | 'custom_header' | 'keys' | 'tag
+     base_urls: BaseUrl[] | null;
+     custom_header: CustomHeader[] | null;
+     keys: ChannelKey[] | null;
++    tags?: string[] | null;
+     health?: ChannelHealth;
+-    test_summary?: ChannelTestSummary | null;
++    test_summary?: ChannelHealthSummary | null;
+ };
+ 
+ /**
+@@ -288,6 +282,7 @@ export function useChannelList() {
+                 base_urls: item.base_urls ?? [],
+                 custom_header: item.custom_header ?? [],
+                 keys: item.keys ?? [],
++                tags: item.tags ?? [],
+                 health: item.health ?? 'unknown',
+                 test_summary: item.test_summary ?? null,
+             }) satisfies Channel,
+@@ -459,6 +454,20 @@ export function useFetchModel() {
+     });
+ }
+ 
++/**
++ * 检查渠道端点/API Key 是否与已有渠道重复。
++ */
++export function useCheckDuplicate() {
++    return useMutation({
++        mutationFn: async (data: CheckDuplicateRequest) => {
++            return apiClient.post<DuplicateInfo[]>('/api/v1/channel/check-duplicate', data);
++        },
++        onError: (error) => {
++            logger.error('渠道重复检查失败:', error);
++        },
++    });
++}
++
+ /**
+  * 获取渠道最后同步时间 Hook
+  * 
+diff --git a/web/src/api/endpoints/group.ts b/web/src/api/endpoints/group.ts
+index a0c58c5..70c3d84 100644
+--- a/web/src/api/endpoints/group.ts
++++ b/web/src/api/endpoints/group.ts
+@@ -201,30 +201,40 @@ export function useCreateCoderPresetGroups() {
+ 
+ /**
+  * 自动添加分组 item Hook
+- *
+- * 后端路由: POST /api/v1/group/auto-add-item
+- * Body: { id: number }
+- *
+- * @example
+- * const autoAdd = useAutoAddGroupItem();
+- * autoAdd.mutate(1); // 为 groupId=1 自动添加匹配的 items
+  */
++export function useAutoAddGroupItem() {
++    const queryClient = useQueryClient();
++
++    return useMutation({
++        mutationFn: async (groupId: number) => {
++            return apiClient.post<null>('/api/v1/group/auto-add-item', { id: groupId });
++        },
++        onSuccess: () => {
++            logger.log('自动添加分组 item 成功');
++            queryClient.invalidateQueries({ queryKey: ['groups', 'list'] });
++        },
++        onError: (error) => {
++            logger.error('自动添加分组 item 失败:', error);
++        },
++    });
++}
++
+ /**
+- * Create pre-configured agentic coding groups (Claude Code + Codex)
++ * Create pre-configured agentic coding groups (Claude Code + Codex).
+  */
+ export function useCreateAgenticGroups() {
+     const queryClient = useQueryClient();
+ 
+-//     return useMutation({
+-//         mutationFn: async (groupId: number) => {
+-//             return apiClient.post<null>(`/api/v1/group/auto-add-item`, { id: groupId });
+-//         },
+-//         onSuccess: () => {
+-//             logger.log('自动添加分组 item 成功');
+-//             queryClient.invalidateQueries({ queryKey: ['groups', 'list'] });
+-//         },
+-//         onError: (error) => {
+-//             logger.error('自动添加分组 item 失败:', error);
+-//         },
+-//     });
+-// }
++    return useMutation({
++        mutationFn: async () => {
++            return apiClient.post<Group[]>('/api/v1/group/agentic-presets');
++        },
++        onSuccess: (data) => {
++            logger.log('Agentic coding groups created:', data);
++            queryClient.invalidateQueries({ queryKey: ['groups', 'list'] });
++        },
++        onError: (error) => {
++            logger.error('Agentic coding groups creation failed:', error);
++        },
++    });
++}
+diff --git a/web/src/components/modules/channel/Card.tsx b/web/src/components/modules/channel/Card.tsx
+index 9f73973..34fd38b 100644
+--- a/web/src/components/modules/channel/Card.tsx
++++ b/web/src/components/modules/channel/Card.tsx
+@@ -4,7 +4,7 @@ import {
+     MorphingDialogContainer,
+     MorphingDialogContent,
+ } from '@/components/ui/morphing-dialog';
+-import { AlertTriangle, CheckCircle2, DollarSign, Key, Layers, MessageSquare, XCircle } from 'lucide-react';
++import { CheckCircle2, DollarSign, Key, Layers, MessageSquare, XCircle } from 'lucide-react';
+ import { type StatsMetricsFormatted } from '@/api/endpoints/stats';
+ import { type Channel, useEnableChannel } from '@/api/endpoints/channel';
+ import { CardContent } from './CardContent';
+@@ -14,7 +14,6 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/animate-ui
+ import { Switch } from '@/components/ui/switch';
+ import { Badge } from '@/components/ui/badge';
+ import { toast } from '@/components/common/Toast';
+-import { Badge } from '@/components/ui/badge';
+ import { cn } from '@/lib/utils';
+ import { AttentionTag } from './TestResults';
+ 
+@@ -23,39 +22,9 @@ export function Card({ channel, stats, layout = 'grid' }: { channel: Channel; st
+     const tForm = useTranslations('channel.form');
+     const tSections = useTranslations('channel.detail.sections');
+     const tMetrics = useTranslations('channel.detail.metrics');
+-    const tTag = useTranslations('channel.statusTag');
+     const enableChannel = useEnableChannel();
+     const isListLayout = layout === 'list';
+ 
+-    const statusTagBadge = (() => {
+-        if (!channel.status_tag) return null;
+-        switch (channel.status_tag) {
+-            case 'auto_disabled':
+-                return (
+-                    <Badge variant="destructive" className="h-5 px-1.5 text-[10px] gap-1">
+-                        <Ban className="size-3" />
+-                        {tTag('autoDisabled')}
+-                    </Badge>
+-                );
+-            case 'insufficient_funds':
+-                return (
+-                    <Badge className="h-5 px-1.5 text-[10px] gap-1 bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-500/30">
+-                        <AlertTriangle className="size-3" />
+-                        {tTag('insufficientFunds')}
+-                    </Badge>
+-                );
+-            case 'quota_exceeded':
+-                return (
+-                    <Badge className="h-5 px-1.5 text-[10px] gap-1 bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-500/30">
+-                        <AlertTriangle className="size-3" />
+-                        {tTag('quotaExceeded')}
+-                    </Badge>
+-                );
+-            default:
+-                return null;
+-        }
+-    })();
+-
+     const splitModels = (models: string) =>
+         models
+             .split(',')
+diff --git a/web/src/components/modules/channel/CardContent.tsx b/web/src/components/modules/channel/CardContent.tsx
+index c4446b8..94ce267 100644
+--- a/web/src/components/modules/channel/CardContent.tsx
++++ b/web/src/components/modules/channel/CardContent.tsx
+@@ -1,4 +1,4 @@
+-import { useMemo, useState } from 'react';
++import { useState } from 'react';
+ import {
+     Trash2,
+     CheckCircle2,
+@@ -46,24 +46,6 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
+     const cachedTestResults = useChannelTestResults(channel.id);
+     const [isEditing, setIsEditing] = useState(false);
+     const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+-    const [expandedKeys, setExpandedKeys] = useState<Set<number>>(new Set());
+-    const toggleKeyExpanded = (id: number) => {
+-        setExpandedKeys((prev) => {
+-            const next = new Set(prev);
+-            if (next.has(id)) next.delete(id);
+-            else next.add(id);
+-            return next;
+-        });
+-    };
+-    const resultsByKey = useMemo(() => {
+-        const map = new Map<number, ChannelKeyModelStatus[]>();
+-        for (const r of testData?.results ?? []) {
+-            const arr = map.get(r.key_id) ?? [];
+-            arr.push(r);
+-            map.set(r.key_id, arr);
+-        }
+-        return map;
+-    }, [testData]);
+     const [formData, setFormData] = useState<ChannelFormData>({
+         name: channel.name,
+         type: channel.type,
+@@ -408,14 +390,24 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
+                                             size="sm"
+                                             disabled={testChannel.isPending}
+                                             onClick={() => {
+-                                                testChannel.mutate(channel.id, {
+-                                                    onSuccess: () => toast.success(t('test.toastSuccess')),
+-                                                    onError: (e) => toast.error(t('test.toastFailed'), { description: e.message }),
+-                                                });
++                                                testChannel.mutate(
++                                                    { id: channel.id, include_disabled_keys: true },
++                                                    {
++                                                        onSuccess: (summary) => {
++                                                            toast.success(
++                                                                tTest('toastDone', {
++                                                                    pass: summary.success_count,
++                                                                    total: summary.total_probes,
++                                                                })
++                                                            );
++                                                        },
++                                                        onError: (e) => toast.error(e.message),
++                                                    }
++                                                );
+                                             }}
+                                             className="h-7 rounded-lg gap-1 text-xs"
+                                         >
+-                                            <FlaskConical className={cn('size-3.5', testChannel.isPending && 'animate-pulse')} />
++                                            <PlayCircle className={cn('size-3.5', testChannel.isPending && 'animate-pulse')} />
+                                             {testChannel.isPending ? t('test.testing') : t('test.testAll')}
+                                         </Button>
+                                     </div>
+@@ -443,6 +435,7 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
+                                                         <span className="text-xs text-muted-foreground truncate max-w-24" title={key.remark}>
+                                                             {key.remark}
+                                                         </span>
++                                                    )}
+ 
+                                                     <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                                                         {key.auto_disabled && (
+@@ -585,43 +578,8 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
+                                 </dl>
+                             </div>
+ 
+-                            {/* Model Test Results */}
+-                            {modelTestResults && modelTestResults.length > 0 && (
+-                                <section className="space-y-3">
+-                                    <h4 className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+-                                        <Activity className="size-3.5" />
+-                                        {t('sections.modelTestResults')}
+-                                    </h4>
+-                                    <div className="rounded-2xl border bg-card overflow-hidden">
+-                                        {modelTestResults.map((r) => (
+-                                            <div key={r.model} className="flex items-center justify-between p-3 border-b last:border-0">
+-                                                <span className="font-mono text-sm truncate min-w-0 flex-1">{r.model}</span>
+-                                                <div className="flex items-center gap-2 shrink-0">
+-                                                    {r.available ? (
+-                                                        <Badge className="h-5 px-1.5 text-[10px] gap-1 bg-green-500/15 text-green-700 dark:text-green-400 border-green-500/30">
+-                                                            <CheckCircle2 className="size-2.5" />
+-                                                            OK
+-                                                        </Badge>
+-                                                    ) : (
+-                                                        <Badge variant="destructive" className="h-5 px-1.5 text-[10px] gap-1">
+-                                                            <XCircle className="size-2.5" />
+-                                                            Failed
+-                                                        </Badge>
+-                                                    )}
+-                                                </div>
+-                                                {r.error && (
+-                                                    <span className="text-[10px] text-destructive ml-2 truncate max-w-40" title={r.error}>
+-                                                        {r.error}
+-                                                    </span>
+-                                                )}
+-                                            </div>
+-                                        ))}
+-                                    </div>
+-                                </section>
+-                            )}
+-
+                             {/* 操作按钮 */}
+-                            <div className="grid gap-3 grid-cols-2 sm:grid-cols-4 pt-2">
++                            <div className="grid gap-3 sm:grid-cols-2 pt-2">
+                                 <Button
+                                     onClick={() => (isConfirmingDelete ? setIsConfirmingDelete(false) : setIsEditing(true))}
+                                     variant={isConfirmingDelete ? 'secondary' : 'default'}
+@@ -629,29 +587,6 @@ export function CardContent({ channel, stats }: { channel: Channel; stats: Stats
+                                 >
+                                     {isConfirmingDelete ? t('actions.cancel') : t('actions.edit')}
+                                 </Button>
+-                                <Button
+-                                    onClick={() => checkModels.mutate(channel.id)}
+-                                    disabled={checkModels.isPending}
+-                                    variant="outline"
+-                                    className="w-full rounded-2xl h-12"
+-                                >
+-                                    <RefreshCw className={`size-4 ${checkModels.isPending ? 'animate-spin' : ''}`} />
+-                                    {checkModels.isPending ? t('actions.checkingModels') : t('actions.checkModels')}
+-                                </Button>
+-                                <Button
+-                                    onClick={() => {
+-                                        setModelTestResults(null);
+-                                        testAllModels.mutate(channel.id, {
+-                                            onSuccess: (data) => setModelTestResults(data),
+-                                        });
+-                                    }}
+-                                    disabled={testAllModels.isPending}
+-                                    variant="outline"
+-                                    className="w-full rounded-2xl h-12"
+-                                >
+-                                    <Activity className={`size-4 ${testAllModels.isPending ? 'animate-pulse' : ''}`} />
+-                                    {testAllModels.isPending ? t('actions.testingAllModels') : t('actions.testAllModels')}
+-                                </Button>
+                                 <Button
+                                     onClick={handleDeleteClick}
+                                     disabled={deleteChannel.isPending}
+diff --git a/web/src/components/modules/channel/TestBadge.tsx b/web/src/components/modules/channel/TestBadge.tsx
+deleted file mode 100644
+index e87ba5f..0000000
+--- a/web/src/components/modules/channel/TestBadge.tsx
++++ /dev/null
+@@ -1,71 +0,0 @@
+-'use client';
+-
+-import { Loader2 } from 'lucide-react';
+-import { cn } from '@/lib/utils';
+-import { useChannelTestStatus, type ChannelTestChannelSummary } from '@/api/endpoints/channel';
+-
+-/**
+- * TestBadge renders the per-channel "models OK / total · keys OK / total"
+- * pill that lives in the channel card header and detail dialog. It pulls
+- * data from the run-status query so it stays in sync with the global poller
+- * without each card spawning its own request.
+- */
+-export function TestBadge({ channelID, size = 'sm' }: { channelID: number; size?: 'sm' | 'md' }) {
+-    const { data: status } = useChannelTestStatus();
+-    const summary = status?.channels?.[String(channelID)];
+-
+-    if (!summary) {
+-        return null;
+-    }
+-
+-    return (
+-        <span
+-            className={cn(
+-                'inline-flex items-center gap-1 rounded-full border whitespace-nowrap',
+-                size === 'sm' ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-0.5 text-xs',
+-                pillToneClass(summary),
+-            )}
+-            title={tooltipFor(summary)}
+-        >
+-            {!summary.finished_at && status?.running ? (
+-                <Loader2 className="size-3 animate-spin" />
+-            ) : null}
+-            <span className="font-semibold">
+-                {summary.worked_models}
+-                <span className="opacity-60">/{summary.total_models}</span>
+-            </span>
+-            <span className="opacity-60">models</span>
+-            <span className="font-semibold">
+-                {summary.worked_keys}
+-                <span className="opacity-60">/{summary.total_keys}</span>
+-            </span>
+-            <span className="opacity-60">keys</span>
+-        </span>
+-    );
+-}
+-
+-function pillToneClass(summary: ChannelTestChannelSummary): string {
+-    if (summary.skipped) {
+-        return 'border-muted-foreground/30 bg-muted/40 text-muted-foreground';
+-    }
+-    if (!summary.finished_at) {
+-        return 'border-primary/30 bg-primary/10 text-primary';
+-    }
+-    if (summary.total_models === 0 || summary.worked_models === 0) {
+-        return 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300';
+-    }
+-    if (summary.worked_models < summary.total_models || summary.worked_keys < summary.total_keys) {
+-        return 'border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-300';
+-    }
+-    return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300';
+-}
+-
+-function tooltipFor(summary: ChannelTestChannelSummary): string {
+-    if (summary.skipped) {
+-        return `Skipped: ${summary.skipped}`;
+-    }
+-    if (!summary.finished_at) {
+-        return 'Test in progress';
+-    }
+-    return `${summary.worked_models}/${summary.total_models} models · ${summary.worked_keys}/${summary.total_keys} keys`;
+-}
+diff --git a/web/src/components/modules/channel/TestPanel.tsx b/web/src/components/modules/channel/TestPanel.tsx
+deleted file mode 100644
+index 02c7ae8..0000000
+--- a/web/src/components/modules/channel/TestPanel.tsx
++++ /dev/null
+@@ -1,218 +0,0 @@
+-'use client';
+-
+-import { useMemo } from 'react';
+-import { CheckCircle2, FlaskConical, Loader2, OctagonAlert } from 'lucide-react';
+-import { Button } from '@/components/ui/button';
+-import {
+-    useCancelChannelTest,
+-    useChannelTestStatus,
+-    useStartChannelTest,
+-} from '@/api/endpoints/channel';
+-import { toast } from '@/components/common/Toast';
+-import { cn } from '@/lib/utils';
+-
+-/**
+- * TestPanel renders the run-wide channel test controls plus an aggregate
+- * progress strip. It is intentionally dense: a row of metrics + one CTA so
+- * it doesn't push the channel list down.
+- *
+- * The progress numbers are derived from the live status payload we already
+- * poll for (see useChannelTestStatus) so we don't duplicate any state.
+- */
+-export function TestPanel() {
+-    const { data: status } = useChannelTestStatus();
+-    const startMutation = useStartChannelTest();
+-    const cancelMutation = useCancelChannelTest();
+-
+-    const summary = useMemo(() => {
+-        const channels = status?.channels ? Object.values(status.channels) : [];
+-        const finished = channels.filter((c) => c.finished_at);
+-        const totalModels = finished.reduce((acc, c) => acc + c.total_models, 0);
+-        const workedModels = finished.reduce((acc, c) => acc + c.worked_models, 0);
+-        const totalKeys = finished.reduce((acc, c) => acc + c.total_keys, 0);
+-        const workedKeys = finished.reduce((acc, c) => acc + c.worked_keys, 0);
+-        const channelsWithFailures = finished.filter(
+-            (c) => c.total_models > 0 && c.worked_models < c.total_models,
+-        ).length;
+-        return {
+-            channelsTested: finished.length,
+-            totalModels,
+-            workedModels,
+-            totalKeys,
+-            workedKeys,
+-            channelsWithFailures,
+-        };
+-    }, [status]);
+-
+-    const running = status?.running ?? false;
+-    const startedAt = status?.started_at ? new Date(status.started_at) : null;
+-    const finishedAt = status?.finished_at ? new Date(status.finished_at) : null;
+-
+-    const handleStart = () => {
+-        startMutation.mutate(undefined, {
+-            onSuccess: () => {
+-                toast.success('Channel test started');
+-            },
+-            onError: (err) => {
+-                const msg =
+-                    err && typeof err === 'object' && 'message' in err && typeof err.message === 'string'
+-                        ? err.message
+-                        : 'Failed to start channel test';
+-                toast.error(msg);
+-            },
+-        });
+-    };
+-
+-    const handleCancel = () => {
+-        cancelMutation.mutate(undefined, {
+-            onSuccess: () => {
+-                toast.info('Channel test cancelled');
+-            },
+-        });
+-    };
+-
+-    const hasResults = summary.channelsTested > 0;
+-    const everCompleted = !!finishedAt && !running;
+-
+-    return (
+-        <section className="mb-4 rounded-2xl border border-border/70 bg-card text-card-foreground p-3 sm:p-4">
+-            <header className="mb-3 flex flex-wrap items-center justify-between gap-2">
+-                <div className="flex items-center gap-2 min-w-0">
+-                    <FlaskConical className="size-4 text-primary shrink-0" />
+-                    <h3 className="text-sm font-semibold truncate">Channel diagnostics</h3>
+-                    {running && (
+-                        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+-                            <Loader2 className="size-3 animate-spin" />
+-                            Running…
+-                        </span>
+-                    )}
+-                </div>
+-                <div className="flex items-center gap-2">
+-                    {running ? (
+-                        <Button
+-                            type="button"
+-                            size="sm"
+-                            variant="secondary"
+-                            onClick={handleCancel}
+-                            disabled={cancelMutation.isPending}
+-                            className="rounded-xl h-8"
+-                        >
+-                            Cancel
+-                        </Button>
+-                    ) : (
+-                        <Button
+-                            type="button"
+-                            size="sm"
+-                            onClick={handleStart}
+-                            disabled={startMutation.isPending}
+-                            className="rounded-xl h-8"
+-                        >
+-                            <FlaskConical className="size-3.5" />
+-                            Test all channels
+-                        </Button>
+-                    )}
+-                </div>
+-            </header>
+-
+-            <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+-                <Metric
+-                    icon={<CheckCircle2 className="size-3.5 text-emerald-500" />}
+-                    label="Models OK"
+-                    primary={summary.workedModels}
+-                    secondary={summary.totalModels}
+-                    state={metricState(summary.workedModels, summary.totalModels)}
+-                />
+-                <Metric
+-                    icon={<CheckCircle2 className="size-3.5 text-emerald-500" />}
+-                    label="API keys OK"
+-                    primary={summary.workedKeys}
+-                    secondary={summary.totalKeys}
+-                    state={metricState(summary.workedKeys, summary.totalKeys)}
+-                />
+-                <Metric
+-                    icon={<OctagonAlert className="size-3.5 text-orange-500" />}
+-                    label="Channels with failures"
+-                    primary={summary.channelsWithFailures}
+-                    secondary={summary.channelsTested}
+-                    state={summary.channelsWithFailures > 0 ? 'warn' : 'ok'}
+-                />
+-                <Metric
+-                    icon={running
+-                        ? <Loader2 className="size-3.5 animate-spin text-primary" />
+-                        : <CheckCircle2 className="size-3.5 text-primary" />}
+-                    label="Channels tested"
+-                    primary={status?.completed_channels ?? 0}
+-                    secondary={status?.total_channels ?? 0}
+-                    state="neutral"
+-                />
+-            </dl>
+-
+-            {hasResults && (
+-                <p className="mt-3 text-[11px] text-muted-foreground">
+-                    {everCompleted ? (
+-                        <>Last run finished {finishedAt!.toLocaleString()} · started {startedAt?.toLocaleString()}</>
+-                    ) : (
+-                        <>Started {startedAt?.toLocaleString() ?? 'just now'}</>
+-                    )}
+-                </p>
+-            )}
+-
+-            {!hasResults && !running && (
+-                <p className="mt-3 text-[11px] text-muted-foreground">
+-                    Click <strong>Test all channels</strong> to send a 1-token probe through every model on every
+-                    enabled key. Each card will then show how many models/keys responded successfully and the
+-                    upstream failure reason for the rest.
+-                </p>
+-            )}
+-        </section>
+-    );
+-}
+-
+-type MetricState = 'ok' | 'warn' | 'fail' | 'neutral';
+-
+-function metricState(worked: number, total: number): MetricState {
+-    if (total === 0) return 'neutral';
+-    if (worked === total) return 'ok';
+-    if (worked === 0) return 'fail';
+-    return 'warn';
+-}
+-
+-function Metric({
+-    icon,
+-    label,
+-    primary,
+-    secondary,
+-    state,
+-}: {
+-    icon: React.ReactNode;
+-    label: string;
+-    primary: number;
+-    secondary: number;
+-    state: MetricState;
+-}) {
+-    return (
+-        <div className="rounded-xl border border-border/60 bg-background/70 px-3 py-2 min-w-0">
+-            <dt className="mb-1 flex items-center gap-1.5 text-[11px] text-muted-foreground truncate">
+-                {icon}
+-                {label}
+-            </dt>
+-            <dd className={cn('flex items-baseline gap-1 text-base font-semibold', stateClass(state))}>
+-                <span>{primary}</span>
+-                <span className="text-xs text-muted-foreground">/ {secondary}</span>
+-            </dd>
+-        </div>
+-    );
+-}
+-
+-function stateClass(state: MetricState): string {
+-    switch (state) {
+-        case 'ok':
+-            return 'text-emerald-600 dark:text-emerald-400';
+-        case 'warn':
+-            return 'text-orange-600 dark:text-orange-400';
+-        case 'fail':
+-            return 'text-red-600 dark:text-red-400';
+-        default:
+-            return 'text-foreground';
+-    }
+-}
+diff --git a/web/src/components/modules/channel/index.tsx b/web/src/components/modules/channel/index.tsx
+index b4adb33..04b339d 100644
+--- a/web/src/components/modules/channel/index.tsx
++++ b/web/src/components/modules/channel/index.tsx
+@@ -3,7 +3,6 @@
+ import { useMemo } from 'react';
+ import { useChannelList } from '@/api/endpoints/channel';
+ import { Card } from './Card';
+-import { TestPanel } from './TestPanel';
+ import { useSearchStore, useToolbarViewOptionsStore } from '@/components/modules/toolbar';
+ import { VirtualizedGrid } from '@/components/common/VirtualizedGrid';
+ 
+@@ -45,18 +44,13 @@ export function Channel() {
+     }, [sortedChannels, searchTerm, filter, healthFilter]);
+ 
+     return (
+-        <div className="flex h-full min-h-0 flex-col">
+-            <TestPanel />
+-            <div className="min-h-0 flex-1">
+-                <VirtualizedGrid
+-                    items={visibleChannels}
+-                    layout={layout}
+-                    columns={{ default: 1, md: 2, lg: 3 }}
+-                    estimateItemHeight={216}
+-                    getItemKey={(item) => `channel-${item.raw.id}`}
+-                    renderItem={(item) => <Card channel={item.raw} stats={item.formatted} layout={layout} />}
+-                />
+-            </div>
+-        </div>
++        <VirtualizedGrid
++            items={visibleChannels}
++            layout={layout}
++            columns={{ default: 1, md: 2, lg: 3 }}
++            estimateItemHeight={216}
++            getItemKey={(item) => `channel-${item.raw.id}`}
++            renderItem={(item) => <Card channel={item.raw} stats={item.formatted} layout={layout} />}
++        />
+     );
+ }
+diff --git a/web/src/components/modules/toolbar/index.tsx b/web/src/components/modules/toolbar/index.tsx
+index 324e7e1..e8ebfa1 100644
+--- a/web/src/components/modules/toolbar/index.tsx
++++ b/web/src/components/modules/toolbar/index.tsx
+@@ -87,7 +87,6 @@ export function Toolbar() {
+     const setChannelHealthFilter = useToolbarViewOptionsStore((s) => s.setChannelHealthFilter);
+     const setGroupFilter = useToolbarViewOptionsStore((s) => s.setGroupFilter);
+     const setModelFilter = useToolbarViewOptionsStore((s) => s.setModelFilter);
+-    const testAll = useTestAllChannels();
+     const [expandedSearchItem, setExpandedSearchItem] = useState<ToolbarPage | null>(null);
+     const searchExpanded = expandedSearchItem === toolbarItem;
+ 
+@@ -99,7 +98,6 @@ export function Toolbar() {
+         all: 'popover.filter.channel.all',
+         enabled: 'popover.filter.channel.enabled',
+         disabled: 'popover.filter.channel.disabled',
+-        'funding-issue': 'popover.filter.channel.fundingIssue',
+     };
+     const groupFilterLabelKeys: Record<GroupFilter, string> = {
+         all: 'popover.filter.group.all',
+@@ -381,6 +379,7 @@ export function Toolbar() {
+ function TestAllChannelsButton() {
+     const t = useTranslations('toolbar');
+     const tTest = useTranslations('channel.test');
++    const testAll = useTestAllChannels();
+     const isPending = testAll.isPending;
+     return (
+         <button
+@@ -393,8 +392,8 @@ function TestAllChannelsButton() {
+                     {
+                         onSuccess: (resp) => {
+                             const summaries = resp.summaries ?? [];
+-                            const totalPass = summaries.reduce((s, x) => s + x.success_count, 0);
+-                            const totalProbes = summaries.reduce((s, x) => s + x.total_probes, 0);
++                            const totalPass = summaries.reduce((s: number, x) => s + x.success_count, 0);
++                            const totalProbes = summaries.reduce((s: number, x) => s + x.total_probes, 0);
+                             toast.success(
+                                 tTest('toastDoneAll', {
+                                     channels: summaries.length,
+@@ -403,7 +402,7 @@ function TestAllChannelsButton() {
+                                 })
+                             );
+                         },
+-                        onError: (err) => toast.error(err.message),
++                        onError: (err: Error) => toast.error(err.message),
+                     }
+                 );
+             }}

@@ -14,6 +14,7 @@ const (
 	InboundTypeAnthropic
 	InboundTypeGemini
 	InboundTypeOpenAIEmbedding
+	InboundTypeOpenAIRerank
 
 	// Compatibility alias for legacy naming
 	InboundTypeOpenAI = InboundTypeOpenAIChat
@@ -23,6 +24,7 @@ var inboundFactories = map[InboundType]func() model.Inbound{
 	InboundTypeOpenAIChat:      func() model.Inbound { return &openai.ChatInbound{} },
 	InboundTypeOpenAIResponse:  func() model.Inbound { return &openai.ResponseInbound{} },
 	InboundTypeOpenAIEmbedding: func() model.Inbound { return &openai.EmbeddingInbound{} },
+	InboundTypeOpenAIRerank:    func() model.Inbound { return &openai.RerankInbound{} },
 	InboundTypeAnthropic:       func() model.Inbound { return &anthropic.MessagesInbound{} },
 }
 

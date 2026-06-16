@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import type { GroupItem } from '@/api/endpoints/group';
 import {
     MorphingDialogClose,
@@ -7,15 +8,31 @@ import {
     MorphingDialogDescription,
     useMorphingDialog,
 } from '@/components/ui/morphing-dialog';
-import { useCreateGroup } from '@/api/endpoints/group';
+import { useCreateCoderPresetGroups, useCreateGroup } from '@/api/endpoints/group';
 import { useTranslations } from 'next-intl';
 import { GroupEditor } from './Editor';
 import { toast } from '@/components/common/Toast';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 
 export function CreateDialogContent() {
     const { setIsOpen } = useMorphingDialog();
     const createGroup = useCreateGroup();
+    const createCoderPresetGroups = useCreateCoderPresetGroups();
     const t = useTranslations('group');
+    const [presetModel, setPresetModel] = useState('agentic-coder');
+
+    const handleCreateCoderPresets = () => {
+        const modelName = presetModel.trim();
+        if (!modelName) return;
+        createCoderPresetGroups.mutate(modelName, {
+            onSuccess: () => {
+                toast.success(t('preset.success'));
+                setIsOpen(false);
+            },
+            onError: (error) => toast.error(t('preset.failed'), { description: error.message }),
+        });
+    };
 
     return (
         <div className="w-screen max-w-full md:max-w-4xl h-[calc(100vh-2rem)] min-h-0 flex flex-col">
@@ -35,6 +52,26 @@ export function CreateDialogContent() {
                 </header>
             </MorphingDialogTitle>
             <MorphingDialogDescription className="flex-1 min-h-0 overflow-hidden">
+                <div className="mb-4 rounded-2xl border border-border bg-muted/30 p-3">
+                    <div className="mb-2 text-sm font-medium text-card-foreground">{t('preset.title')}</div>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                        <Input
+                            value={presetModel}
+                            onChange={(event) => setPresetModel(event.target.value)}
+                            placeholder={t('preset.modelPlaceholder')}
+                            className="rounded-xl"
+                        />
+                        <Button
+                            type="button"
+                            onClick={handleCreateCoderPresets}
+                            disabled={createCoderPresetGroups.isPending || !presetModel.trim()}
+                            className="rounded-xl"
+                        >
+                            {createCoderPresetGroups.isPending ? t('preset.creating') : t('preset.create')}
+                        </Button>
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">{t('preset.hint')}</p>
+                </div>
                 <GroupEditor
                     submitText={t('create.submit')}
                     submittingText={t('create.submitting')}
